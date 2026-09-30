@@ -1,0 +1,11 @@
+[tool.ruff]
+# Set the maximum line length to 88.
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I"] # pycodestyle, pyflakes, isort
+ignore = []
+
+[tool.pytest.ini_options]
+addopts = "--cov=app --cov-report=term-missing"
+testpaths = ["tests"]

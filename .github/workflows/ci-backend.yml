@@ -1,0 +1,52 @@
+name: CI Backend
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+    paths:
+      - 'packages/backend-api/**'
+      - '.github/workflows/ci-backend.yml'
+  pull_request:
+    branches: [ "main", "develop" ]
+    paths:
+      - 'packages/backend-api/**'
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    
+    defaults:
+      run:
+        working-directory: ./packages/backend-api
+
+    steps:
+    - name: Checkout del codigo
+      uses: actions/checkout@v4
+
+    - name: Configurar Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: 'pip'
+
+    - name: Instalar dependencias
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        # Instalar herramientas de desarrollo (linting y testing)
+        pip install ruff pytest pytest-cov httpx
+
+    - name: Linting con Ruff
+      run: |
+        # Verifica errores de sintaxis y estilo
+        ruff check .
+        # Verifica formato
+        ruff format --check .
+
+    - name: Tests con pytest
+      env:
+        # Variables de entorno dummy para tests
+        BACKEND_SECRET_KEY: "test-secret"
+        DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy"
+      run: |
+        pytest -v --cov=app --cov-report=term-missing tests/
