@@ -1,0 +1,85 @@
+# ============================================================
+# ALERVI Monorepo — .gitignore raíz
+# ============================================================
+
+# ---------------------- Variables de entorno ------------------
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ---------------------- Python (Backend) ----------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+.mypy_cache/
+.ruff_cache/
+
+# ---------------------- Node.js (Web) -------------------------
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ---------------------- Kotlin / Android (Móvil) --------------
+*.iml
+.gradle/
+local.properties
+.idea/
+*.apk
+*.aab
+*.ap_
+*.dex
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.hprof
+
+# ---------------------- Docker --------------------------------
+docker-compose.override.yml
+
+# ---------------------- IDEs ----------------------------------
+.vscode/
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.cursor/
+
+# ---------------------- OS ------------------------------------
+.DS_Store
+Thumbs.db
+.directory
+Desktop.ini
+
+# ---------------------- Testing -------------------------------
+coverage/
+test-results/
+playwright-report/
+blob-report/
+
+# ---------------------- Misc ----------------------------------
+*.log
+*.tmp
+*.bak
+*.orig

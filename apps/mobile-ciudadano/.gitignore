@@ -1,0 +1,15 @@
+# Mobile Kotlin/Android — .gitignore
+*.iml
+.gradle/
+/local.properties
+.idea/
+/build/
+/app/build/
+/captures
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.hprof

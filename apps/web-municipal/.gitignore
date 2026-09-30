@@ -1,0 +1,9 @@
+# Web Municipal Next.js — .gitignore
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+npm-debug.log*
+coverage/
+playwright-report/
+test-results/
