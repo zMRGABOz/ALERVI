@@ -129,6 +129,16 @@ docker compose down
 docker compose down -v
 ```
 
+### 6. Calidad de Codigo (Pre-commit hooks)
+
+Antes de hacer commits, todo el equipo debe instalar los hooks locales para que el codigo se parsee y verifique automaticamente. Ejecuta esto por unica vez:
+
+```bash
+# Requiere Python instalado localmente
+pip install pre-commit
+pre-commit install
+```
+
 ---
 
 ## {+} Estructura del Proyecto

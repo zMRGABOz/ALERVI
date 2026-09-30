@@ -14,7 +14,7 @@ on:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
-    
+
     defaults:
       run:
         working-directory: ./packages/backend-api
@@ -48,5 +48,6 @@ jobs:
         # Variables de entorno dummy para tests
         BACKEND_SECRET_KEY: "test-secret"
         DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy"
+        PYTHONPATH: "."
       run: |
-        pytest -v --cov=app --cov-report=term-missing tests/
+        python -m pytest -v --cov=app --cov-report=term-missing tests/
