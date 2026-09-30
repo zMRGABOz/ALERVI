@@ -1,0 +1,60 @@
+# ============================================================
+#  ALERVI — Docker Compose (Desarrollo Local)
+# ============================================================
+#  Uso:
+#    cp .env.example .env        # (solo la primera vez)
+#    docker compose up -d        # levantar todo
+#    docker compose logs -f      # ver logs en tiempo real
+#    docker compose down         # detener todo
+#    docker compose down -v      # detener y borrar datos de BD
+# ============================================================
+
+services:
+
+  # ---- Base de Datos (PostgreSQL + PostGIS) ----
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: alervi-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-alervi_db}
+      POSTGRES_USER: ${POSTGRES_USER:-alervi_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-alervi_dev_2026}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./packages/db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-alervi_user} -d ${POSTGRES_DB:-alervi_db}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ---- Backend API (FastAPI) ----
+  backend:
+    build:
+      context: ./packages/backend-api
+      dockerfile: Dockerfile
+    container_name: alervi-backend
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-alervi_user}:${POSTGRES_PASSWORD:-alervi_dev_2026}@db:5432/${POSTGRES_DB:-alervi_db}"
+      BACKEND_SECRET_KEY: ${BACKEND_SECRET_KEY:-dev-secret-key-cambiar-en-prod}
+      BACKEND_DEBUG: ${BACKEND_DEBUG:-true}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:3000}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./packages/backend-api/app:/code/app:ro
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+    driver: local
