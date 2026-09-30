@@ -70,33 +70,63 @@ ALERVI es una plataforma geoespacial con doble proposito:
 
 ---
 
-## {>} Setup Rapido
+## {>} Guia de Setup Rapido
 
-### Pre-requisitos
+Esta seccion documenta el proceso paso a paso para levantar el entorno de desarrollo local.
+Toda la infraestructura (Base de Datos + API) esta paquetizada en contenedores para garantizar que todo el equipo trabaje en igualdad de condiciones.
 
-- Git >= 2.30
-- Docker Desktop
-- Python >= 3.12
-- Node.js >= 20 LTS
-- Android Studio + JDK 17
+### 1. Pre-requisitos del Sistema
 
-### Levantar el proyecto
+Asegurate de tener instalado lo siguiente antes de comenzar:
+- **Git** >= 2.30
+- **Docker Desktop** (o Docker Engine + Docker Compose Plugin) funcionando y corriendo.
+- **Python** >= 3.12 (Solo si deseas ejecutar el backend fuera de Docker)
+- **Node.js** >= 20 LTS (Para el frontend municipal)
+- **Android Studio** + JDK 17 (Para compilar la App Kotlin)
+
+### 2. Clonar e Inicializar
 
 ```bash
-# 1. Clonar el repositorio
+# Clonar el repositorio
 git clone https://github.com/<org>/alervi.git
 cd alervi
 
-# 2. Configurar variables de entorno
+# Configurar variables de entorno locales
+# (El archivo .env es ignorado por Git por seguridad)
 cp .env.example .env
+```
 
-# 3. Levantar todo con Docker
-docker-compose up -d
+### 3. Levantar Infraestructura con Docker
 
-# 4. Verificar
-# Backend:  http://localhost:8000/docs
-# Web:      http://localhost:3000
-# BD:       localhost:5432
+La base de datos (PostgreSQL + PostGIS) y el Backend (FastAPI) arrancan con un solo comando:
+
+```bash
+# Levantar servicios en segundo plano (daemon)
+docker compose up -d --build
+
+# Verificar que los contenedores esten corriendo (Status: Up / healthy)
+docker compose ps
+```
+
+### 4. Verificar Servicios
+
+Una vez que los contenedores esten "Up", verifica que todo este sano:
+
+- **Documentacion API (Swagger):** Abre en tu navegador [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Health Check API:** Ejecuta `curl -s http://localhost:8000/health` (Deberia retornar `{"status":"ok",...}`)
+- **Base de Datos:** Accesible en `localhost:5432` con las credenciales definidas en tu `.env`.
+
+### 5. Comandos Utiles de Operacion
+
+```bash
+# Ver logs del backend en tiempo real
+docker compose logs -f backend
+
+# Detener los servicios sin borrar datos
+docker compose down
+
+# Detener los servicios Y BORRAR la base de datos (Reset total)
+docker compose down -v
 ```
 
 ---
