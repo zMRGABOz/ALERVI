@@ -20,20 +20,36 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-alervi_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-alervi_dev_2026}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./packages/db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./packages/db/migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER:-alervi_user} -d ${POSTGRES_DB:-alervi_db}",
+          "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-alervi_user} -d ${POSTGRES_DB:-alervi_db}",
         ]
       interval: 5s
       timeout: 5s
       retries: 5
     restart: unless-stopped
+
+# ---- Carga de datos ----
+  datos-dev:
+    build:
+      context: packages/db
+      dockerfile: ingest/Dockerfile
+    container_name: alervi-datos-dev
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-alervi_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-alervi_dev_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-alervi_db}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-alervi_app_db_2026}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
 
   # ---- Backend API (FastAPI) ----
   backend:
