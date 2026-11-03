@@ -9,7 +9,9 @@ from typing import List
 try:
     from pydantic_settings import BaseSettings, SettingsConfigDict
 except ImportError:
-    from pydantic import BaseModel as BaseSettings  # fallback para entornos sin pydantic-settings
+    from pydantic import (
+        BaseModel as BaseSettings,  # fallback para entornos sin pydantic-settings
+    )
     SettingsConfigDict = None
 
 
