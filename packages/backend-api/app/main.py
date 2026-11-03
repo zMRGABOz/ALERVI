@@ -15,13 +15,17 @@ Documentacion interactiva:
 """
 
 from typing import List, Optional
+
 from fastapi import Depends, FastAPI, Path, Query, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
+
+try:
+    from sqlalchemy.orm import Session
+except ImportError:
+    Session = object  # type: ignore
 
 from app.core.config import settings
 from app.core.database import get_db
-import app.models as models
 from app.schemas.api_models import (
     AlertCheckRequest,
     AlertCheckResponse,

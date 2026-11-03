@@ -3,12 +3,11 @@ Modelos ORM de SQLAlchemy y GeoAlchemy2
 """
 
 from datetime import date, datetime
-from typing import List, Optional
+
 from geoalchemy2 import Geometry
 from sqlalchemy import (
     BigInteger,
     Boolean,
-    CheckConstraint,
     Column,
     Date,
     DateTime,
@@ -16,7 +15,6 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     SmallInteger,
-    String,
     Table,
     Text,
 )

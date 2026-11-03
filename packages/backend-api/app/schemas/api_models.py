@@ -16,8 +16,8 @@ endpoints del sistema ALERVI:
 - Auditoria y Trazabilidad (/api/v1/auditoria)
 """
 
-from datetime import date, datetime
-from typing import Any, List, Optional
+from typing import List, Optional
+
 from pydantic import BaseModel, Field
 
 
