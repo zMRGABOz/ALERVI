@@ -10,6 +10,7 @@ on:
     branches: [ "main", "develop" ]
     paths:
       - 'packages/backend-api/**'
+      - '.github/workflows/ci-backend.yml'
 
 jobs:
   lint-and-test:
@@ -50,4 +51,5 @@ jobs:
         DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy"
         PYTHONPATH: "."
       run: |
-        python -m pytest -v --cov=app --cov-report=term-missing tests/
+        python -m pytest -v --cov=app --cov-report=term-missing --cov-fail-under=80 tests/
+
