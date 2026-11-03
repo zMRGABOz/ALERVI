@@ -1,0 +1,2584 @@
+openapi: 3.1.0
+info:
+  title: ALERVI System API (Web DSS & Mobile Citizen)
+  summary: Contrato unificado de servicios REST para la plataforma Web Municipal (DSS) y la App Móvil Ciudadana (Android/Kotlin).
+  description: |
+    Especificación canónica de los endpoints del sistema ALERVI (Alerta y Evaluación de Riesgo Vial en Concepción).
+    Este contrato formaliza las operaciones consumidas por la aplicación móvil Android (`apps/mobile-ciudadano`)
+    y la plataforma web administrativa municipal (`apps/web-municipal`), interactuando con el backend REST
+    FastAPI y PostgreSQL/PostGIS.
+
+    ### Principios Arquitectónicos y Regulatorios Clave:
+    1. **Contrato Desacoplado Multiplataforma (RD-05, RNF-C-3)**: Consumo unificado mediante endpoints RESTful
+       versionados (`/api/v1`) con payloads estándar en JSON y GeoJSON (RFC 7946, WGS 84 / EPSG:4326).
+    2. **Control de Acceso Basado en Roles (RBAC, RF-9, RNF-S-1, RNF-S-2)**:
+       - **Público**: Acceso anónimo a capas de riesgo, detalle ciudadano y evaluación de telemetría de alertas.
+       - **Inspector**: Acceso autenticado vía Bearer JWT para consultar ranking, detalle técnico, registrar/editar fichas propias de terreno y fotos.
+       - **Administrador**: Control total sobre usuarios, ingestión batch de datos (CONASET), calibración de ponderaciones multicriterio y auditoría.
+    3. **Privacidad Estricta de Geolocalización (RNF-S-8, Ley 21.719)**:
+       - Las coordenadas GPS enviadas para evaluar alertas se procesan exclusivamente en memoria volátil.
+       - **NUNCA** se persisten en base de datos ni se registran en logs técnicos del servidor.
+    4. **Reglas Cinemáticas de Alerta Preventiva (RB-13, RB-14, RF-8)**:
+       - Supresión de alertas si velocidad < 1.38 m/s (~5 km/h, embotellamientos), trayectoria divergente o TTC > 12 s.
+       - Máximo 1 alerta por punto crítico por sesión de conducción.
+    5. **Trazabilidad y Auditoría Inmutable (RNF-S-4)**:
+       - El 100% de las acciones críticas (inicios de sesión, gestión de fichas, fotos, usuarios y calibración de pesos)
+         genera un registro inmutable de auditoría.
+    6. **Soporte de Modo Degradado Móvil (Riesgo R-8)**:
+       - El endpoint `/api/v1/publico/riesgo` permite descargar la colección GeoJSON completa para caché local
+         (Room/SQLite) y posibilitar la evaluación autónoma en zonas con mala conectividad 4G.
+  version: 1.0.0
+  contact:
+    name: Marcos Martínez (Líder Técnico) & Matías Figueroa (Product Owner)
+    email: mamartinez2023@udec.cl
+
+servers:
+  - url: http://localhost:8000
+    description: Servidor de desarrollo local (Docker Compose)
+  - url: https://api.alervi.cl
+    description: Servidor de producción (Render Free Tier)
+
+tags:
+  - name: Operaciones y Salud
+    description: Monitoreo, keep-alive y verificación de latencia (RNF-D-1, RNF-R-1).
+  - name: Autenticación y Sesión
+    description: Autenticación de funcionarios municipales, control de intentos fallidos y tokens JWT (RF-9, RNF-S-1, RNF-S-6).
+  - name: Gestión de Usuarios
+    description: Administración de cuentas de usuario, asignación de roles y control de estado (RF-9, RB-15).
+  - name: Ingesta y Cargas
+    description: Ingesta batch de siniestros CONASET, validación territorial y deduplicación (RF-1, RB-1 a RB-4, RNF-R-4).
+  - name: Mapa Público
+    description: Consulta pública de puntos críticos para visualización ciudadana y caché local (RF-2, RB-6, RNF-U-1).
+  - name: Ranking y Analítica
+    description: Jerarquización multicriterio de intersecciones críticas y desempates normados (RF-3, RB-5, RB-7).
+  - name: Puntos Críticos
+    description: Detalle técnico ampliado, desglose del scoring y series históricas para inspectores (RF-3, RB-5).
+  - name: Factores y Ponderaciones
+    description: Catálogo de factores de riesgo de terreno y calibración de pesos del índice (RF-4, RB-5, RB-8).
+  - name: Fichas de Inspección
+    description: Registro, edición de fichas de terreno, gestión de fotos y consulta de historial (RF-5, RF-6, RF-7, RB-9 a RB-12, RNF-S-7).
+  - name: Alertas Proximidad
+    description: Evaluación cinemática de telemetría GPS y disparo de avisos preventivos móviles (RF-8, RB-13, RB-14, RNF-S-8).
+  - name: Auditoría y Trazabilidad
+    description: Consulta de la bitácora inmutable de eventos de seguridad y operaciones críticas (RNF-S-4).
+
+paths:
+  # ==========================================================================
+  # OPERACIONES Y SALUD
+  # ==========================================================================
+  /health:
+    get:
+      tags:
+        - Operaciones y Salud
+      summary: Health check y warm-up del backend
+      description: |
+        Utilizado por la app móvil durante la pantalla de inicio (Splash) para despertar
+        la instancia de Render (evitando demoras en marcha) y por Docker healthcheck/UptimeRobot (RNF-D-1).
+      operationId: checkHealth
+      security: []
+      responses:
+        '200':
+          description: Servicio disponible y respondiendo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: "ok"
+                service: "alervi-api"
+                version: "1.0.0"
+        '503':
+          description: Servicio en mantenimiento o sin conexión a la base de datos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================================================
+  # AUTENTICACIÓN Y SESIÓN (RF-9, RNF-S-1, RNF-S-6, RNF-S-4)
+  # ==========================================================================
+  /api/v1/auth/login:
+    post:
+      tags:
+        - Autenticación y Sesión
+      summary: Inicio de sesión de funcionarios municipales
+      description: |
+        Autentica inspectores y administradores municipales mediante credenciales (correo y contraseña).
+        - Las contraseñas se validan contra hashes `argon2id` (RNF-S-1).
+        - Para el rol Administrador, se exige validación de segundo factor (MFA) si está configurado.
+        - Tras 5 intentos fallidos consecutivos, la cuenta se bloquea temporalmente (RNF-S-6).
+        - El 100% de los intentos (exitosos o fallidos) genera un evento inmutable en auditoría (RNF-S-4).
+      operationId: login
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Autenticación exitosa. Retorna token JWT y perfil de usuario.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Credenciales inválidas (correo o contraseña incorrectos).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                codigo: "CREDENCIALES_INVALIDAS"
+                mensaje: "El correo o la contraseña ingresada son incorrectos."
+        '423':
+          description: Cuenta bloqueada temporalmente por exceso de intentos fallidos (RNF-S-6).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                codigo: "CUENTA_BLOQUEADA"
+                mensaje: "Cuenta bloqueada temporalmente tras 5 intentos fallidos consecutivos. Intente más tarde."
+
+  /api/v1/auth/me:
+    get:
+      tags:
+        - Autenticación y Sesión
+      summary: Consultar datos del usuario autenticado
+      description: Retorna la información de identidad, rol y permisos del usuario en sesión.
+      operationId: getCurrentUser
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Perfil del usuario obtenido con éxito.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsuarioResponse'
+        '401':
+          description: Token no provisto o inválido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/logout:
+    post:
+      tags:
+        - Autenticación y Sesión
+      summary: Cerrar sesión activa
+      description: Invalida la sesión actual del usuario y audita el evento (RNF-S-4).
+      operationId: logout
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Sesión finalizada con éxito.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mensaje:
+                    type: string
+                    example: "Sesión cerrada correctamente."
+
+  # ==========================================================================
+  # GESTIÓN DE USUARIOS (RF-9, RB-15, RNF-S-1, RNF-S-2)
+  # ==========================================================================
+  /api/v1/usuarios:
+    get:
+      tags:
+        - Gestión de Usuarios
+      summary: Listar cuentas de usuarios municipales
+      description: Retorna la lista de inspectores y administradores registrados. Requiere rol Administrador.
+      operationId: listUsuarios
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: rol
+          in: query
+          description: Filtrar por rol de usuario.
+          required: false
+          schema:
+            type: string
+            enum: [inspector, administrador]
+        - name: activo
+          in: query
+          description: Filtrar por estado activo/inactivo.
+          required: false
+          schema:
+            type: boolean
+        - name: limit
+          in: query
+          description: Límite de registros a retornar.
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          description: Desplazamiento para paginación.
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Lista de usuarios obtenida exitosamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsuarioListResponse'
+        '401':
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Permisos insuficientes (exclusivo Administrador).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      tags:
+        - Gestión de Usuarios
+      summary: Crear una nueva cuenta de usuario municipal
+      description: Registra un nuevo funcionario con rol Inspector o Administrador. Requiere rol Administrador.
+      operationId: createUsuario
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UsuarioCreateRequest'
+      responses:
+        '201':
+          description: Usuario creado exitosamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsuarioResponse'
+        '400':
+          description: Datos inválidos o correo ya existente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Permisos insuficientes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/usuarios/{id_usuario}:
+    get:
+      tags:
+        - Gestión de Usuarios
+      summary: Consultar detalle de un usuario
+      description: Obtiene la información técnica de una cuenta municipal por ID.
+      operationId: getUsuarioById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id_usuario
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Usuario encontrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsuarioResponse'
+        '404':
+          description: Usuario no encontrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      tags:
+        - Gestión de Usuarios
+      summary: Modificar cuenta o estado de usuario
+      description: |
+        Permite actualizar rol, reasignar contraseña o desactivar una cuenta.
+        Conforme a §5.1.3 y la Ley 21.719, las cuentas se desactivan (no se eliminan físicamente)
+        para preservar la integridad del historial de inspecciones y auditoría.
+      operationId: updateUsuario
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id_usuario
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UsuarioUpdateRequest'
+      responses:
+        '200':
+          description: Usuario actualizado exitosamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsuarioResponse'
+        '404':
+          description: Usuario no encontrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Permisos insuficientes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================================================
+  # INGESTA Y CARGAS VIALES (RF-1, RB-1 a RB-4, RNF-R-3, RNF-R-4)
+  # ==========================================================================
+  /api/v1/cargas:
+    post:
+      tags:
+        - Ingesta y Cargas
+      summary: Ingesta batch de siniestros viales (CONASET)
+      description: |
+        Permite al Administrador municipal cargar un lote de antecedentes históricos de siniestralidad.
+        Reglas de Negocio aplicadas:
+        - **RB-1 (Delimitación territorial)**: Registros fuera de Concepción se rechazan y contabilizan.
+        - **RB-2 (Procedencia y período)**: El año debe estar en el rango 2020-2025.
+        - **RB-3 (Calidad de datos)**: Validación de esquema y conteos enteros >= 0.
+        - **RB-4 (Tratamiento de duplicados)**: Registros idénticos no se duplican; se omiten o informan.
+        - **RNF-S-4**: La operación queda registrada en la bitácora de auditoría.
+      operationId: cargarDatosViales
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - archivo
+                - fuente
+                - anio
+              properties:
+                archivo:
+                  type: string
+                  format: binary
+                  description: Archivo GeoJSON o CSV con antecedentes de siniestros georreferenciados.
+                fuente:
+                  type: string
+                  example: "CONASET_ARCGIS"
+                anio:
+                  type: integer
+                  minimum: 2020
+                  maximum: 2025
+                  example: 2024
+                descripcion:
+                  type: string
+                  example: "Carga consolidada siniestros Concepción año 2024"
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CargaDatosBatchRequest'
+      responses:
+        '201':
+          description: Ingesta procesada atómicamente. Retorna balance de aceptados, duplicados y rechazados.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CargaDatosResponse'
+        '400':
+          description: Estructura incompatible o archivo corrupto (RB-3).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Permisos insuficientes (exclusivo Administrador).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================================================
+  # MAPA PÚBLICO (RF-2, RB-6, RNF-U-1, RNF-C-4)
+  # ==========================================================================
+  /api/v1/publico/riesgo:
+    get:
+      tags:
+        - Mapa Público
+      summary: Capa pública de puntos críticos (GeoJSON)
+      description: |
+        Retorna la colección geoespacial de puntos críticos de siniestralidad vial en formato
+        estándar GeoJSON (RFC 7946, SRID 4326). Usado tanto por el visor público web como por
+        la app móvil para renderizar marcadores y poblar la caché local en modo degradado (R-8).
+      operationId: getPuntosCriticosPublicos
+      security: []
+      parameters:
+        - name: comuna
+          in: query
+          description: Filtrar puntos por nombre de comuna (ej. "Concepción").
+          required: false
+          schema:
+            type: string
+            example: "Concepción"
+        - name: bbox
+          in: query
+          description: Bounding box en formato "minLon,minLat,maxLon,maxLat" para consultar únicamente la vista visible.
+          required: false
+          schema:
+            type: string
+            example: "-73.091,-36.850,-72.980,-36.780"
+      responses:
+        '200':
+          description: Colección GeoJSON de puntos críticos públicos obtenida con éxito.
+          content:
+            application/geo+json:
+              schema:
+                $ref: '#/components/schemas/GeoJsonFeatureCollection'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GeoJsonFeatureCollection'
+        '400':
+          description: Parámetros de consulta o Bounding Box inválidos.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Error interno del servidor.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/publico/riesgo/{id_punto}:
+    get:
+      tags:
+        - Mapa Público
+      summary: Detalle público extendido de un punto crítico
+      description: |
+        Al seleccionar un punto en el mapa (web o móvil), este endpoint retorna sus antecedentes públicos,
+        métricas de siniestralidad agregadas y contexto urbano sin exponer fichas internas ni datos sensibles.
+        Incluye la advertencia legal de interpretación relativa (RB-6).
+      operationId: getDetallePuntoPublico
+      security: []
+      parameters:
+        - name: id_punto
+          in: path
+          description: Identificador único del punto crítico.
+          required: true
+          schema:
+            type: integer
+            example: 42
+      responses:
+        '200':
+          description: Detalle público del punto crítico obtenido exitosamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PuntoCriticoPublicDetail'
+        '404':
+          description: Punto crítico no encontrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                codigo: "PUNTO_NO_ENCONTRADO"
+                mensaje: "El punto crítico con ID 42 no existe en el sistema."
+
+  # ==========================================================================
+  # RANKING Y ANALÍTICA DSS (RF-3, RB-5, RB-6, RB-7, RB-8)
+  # ==========================================================================
+  /api/v1/ranking:
+    get:
+      tags:
+        - Ranking y Analítica
+      summary: Consultar ranking jerarquizado de puntos críticos
+      description: |
+        Retorna la lista de intersecciones críticas ordenadas descendentemente por su Índice de Prioridad ($IP \in [0, 100]$).
+        Reglas de Negocio aplicadas:
+        - **RB-5**: Cálculo multicriterio integrando Severidad KABCO ($S$), Frecuencia ($F$), Tendencia ($T$) y Contexto ($C$).
+        - **RB-6**: El índice expresa prioridad de intervención municipal, no probabilidad individual ni certificación de seguridad vial.
+        - **RB-7**: Desempates ordenados por: (1) mayor cantidad de fallecidos, (2) mayor cantidad de graves,
+          (3) mayor cantidad total de siniestros, (4) id_punto ascendente.
+        - Puntos con datos insuficientes se devuelven en la sección `puntos_sin_indice` sin asignarles valor 0.
+        - **RB-8**: La respuesta expone la versión de ponderaciones utilizada en el cálculo.
+      operationId: getRanking
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: comuna
+          in: query
+          description: Comuna de análisis (por defecto "Concepción").
+          schema:
+            type: string
+            default: "Concepción"
+        - name: anio
+          in: query
+          description: Filtrar cálculo para un año específico.
+          schema:
+            type: integer
+        - name: periodo_inicio
+          in: query
+          description: Año de inicio del rango temporal analizado.
+          schema:
+            type: integer
+            default: 2020
+        - name: periodo_fin
+          in: query
+          description: Año de término del rango temporal analizado.
+          schema:
+            type: integer
+            default: 2025
+        - name: limit
+          in: query
+          description: Cantidad de puntos a retornar (ej. 10 para Top-10 comunal).
+          schema:
+            type: integer
+            default: 10
+        - name: offset
+          in: query
+          description: Desplazamiento para paginación.
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Ranking multicriterio calculado y jerarquizado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RankingResponse'
+        '401':
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Permisos insuficientes (requiere Inspector o Administrador).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================================================
+  # PUNTOS CRÍTICOS - DETALLE DSS INTERNO (RF-3, RB-5)
+  # ==========================================================================
+  /api/v1/puntos/{id_punto}:
+    get:
+      tags:
+        - Puntos Críticos
+      summary: Detalle técnico y explicación del índice de un punto crítico
+      description: |
+        Proporciona el desglose analítico completo de los factores multicriterio normalizados ($S, F, T, C \in [0, 100]$),
+        las ponderaciones versionadas ($w_i$), la serie histórica anual de siniestros KABCO y la proximidad
+        a colegios y paraderos OSM dentro de 150 m (buffer PostGIS ST_DWithin).
+      operationId: getDetallePuntoTecnico
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id_punto
+          in: path
+          required: true
+          schema:
+            type: integer
+            example: 101
+      responses:
+        '200':
+          description: Detalle técnico obtenido exitosamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PuntoCriticoTecnicoDetail'
+        '404':
+          description: Punto crítico no encontrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Permisos insuficientes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================================================
+  # FACTORES Y PONDERACIONES (RF-4, RB-5, RB-8, RNF-S-4)
+  # ==========================================================================
+  /api/v1/factores:
+    get:
+      tags:
+        - Factores y Ponderaciones
+      summary: Consultar catálogo de factores de riesgo vial
+      description: Retorna el catálogo de condiciones de riesgo observables en terreno para fichas de inspección.
+      operationId: listFactoresRiesgo
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: solo_activos
+          in: query
+          description: Si es true, retorna solo factores activos utilizables en nuevas fichas (Tabla 5.1.2).
+          schema:
+            type: boolean
+            default: true
+      responses:
+        '200':
+          description: Lista de factores de riesgo.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FactorRiesgoDto'
+
+    post:
+      tags:
+        - Factores y Ponderaciones
+      summary: Registrar nuevo factor de riesgo en el catálogo
+      description: Incorpora un factor de riesgo observable (máx 60 caracteres). Exclusivo para Administrador.
+      operationId: createFactorRiesgo
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FactorRiesgoCreateRequest'
+      responses:
+        '201':
+          description: Factor creado exitosamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FactorRiesgoDto'
+        '400':
+          description: Nombre duplicado o inválido.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Permisos insuficientes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/factores/{id_factor}:
+    patch:
+      tags:
+        - Factores y Ponderaciones
+      summary: Modificar o activar/desactivar factor de riesgo
+      description: Actualiza descripción o estado activo de un factor. Exclusivo para Administrador.
+      operationId: updateFactorRiesgo
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id_factor
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FactorRiesgoUpdateRequest'
+      responses:
+        '200':
+          description: Factor actualizado con éxito.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FactorRiesgoDto'
+        '404':
+          description: Factor no encontrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/factores/ponderaciones:
+    get:
+      tags:
+        - Factores y Ponderaciones
+      summary: Consultar ponderaciones vigentes del índice multicriterio
+      description: Retorna la configuración activa de pesos ($w_1, w_2, w_3, w_4$) y el identificador de versión (RF-4, RB-8).
+      operationId: getPonderacionesVigentes
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Ponderaciones vigentes obtenidas exitosamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PonderacionesScoringDto'
+
+    put:
+      tags:
+        - Factores y Ponderaciones
+      summary: Calibrar y versionar ponderaciones del índice
+      description: |
+        Permite al Administrador actualizar las ponderaciones del cálculo multicriterio.
+        Reglas de Negocio:
+        - **RB-5**: Los pesos deben ser no negativos ($w_i \ge 0$) y su suma debe ser exactamente igual a 1.0.
+        - **RB-8**: Solo el Administrador puede modificar los pesos. Una configuración no válida no reemplaza la vigente.
+        - Genera una nueva versión de calibración y se registra en la auditoría (RNF-S-4).
+      operationId: updatePonderaciones
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PonderacionesUpdateRequest'
+      responses:
+        '200':
+          description: Ponderaciones actualizadas y versionadas con éxito.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PonderacionesScoringDto'
+        '400':
+          description: Suma de ponderaciones distinta de 1.0 o pesos negativos (RB-5).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Permisos insuficientes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================================================
+  # FICHAS DE INSPECCIÓN TÉCNICA (RF-5, RF-6, RF-7, RB-9 a RB-12, RNF-S-7)
+  # ==========================================================================
+  /api/v1/inspections:
+    get:
+      tags:
+        - Fichas de Inspección
+      summary: Listar fichas de inspección técnica
+      description: Retorna fichas de inspección con filtros opcionales. Inspector y Administrador (RF-6, RB-11).
+      operationId: listFichasInspeccion
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id_punto
+          in: query
+          description: Filtrar fichas de un punto específico.
+          schema:
+            type: integer
+        - name: id_inspector
+          in: query
+          description: Filtrar fichas levantadas por un inspector específico.
+          schema:
+            type: integer
+        - name: fecha_desde
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: fecha_hasta
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Fichas obtenidas exitosamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FichaInspeccionListResponse'
+
+    post:
+      tags:
+        - Fichas de Inspección
+      summary: Crear ficha de inspección de terreno
+      description: |
+        Registra una nueva inspección técnica vinculada a un punto crítico existente.
+        Reglas de Negocio:
+        - **RB-9**: La autoría se infiere estrictamente del usuario autenticado en el token JWT.
+        - **RB-10**: La fecha de visita no puede ser futura (`fecha_visita <= HOY`).
+        - **RB-10**: Debe contener obligatoriamente al menos una nota o al menos un factor de riesgo activo.
+        - **RNF-S-4**: Genera evento inmutable de auditoría.
+      operationId: createFichaInspeccion
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FichaInspeccionCreateRequest'
+      responses:
+        '201':
+          description: Ficha de inspección registrada con éxito.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FichaInspeccionResponse'
+        '400':
+          description: Validación fallida (fecha futura o ausencia simultánea de factores y nota - RB-10).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Rol no autorizado (solo Inspector puede crear fichas).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: El punto crítico referenciado no existe.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/inspections/{id_ficha}:
+    get:
+      tags:
+        - Fichas de Inspección
+      summary: Consultar detalle de una ficha de inspección
+      description: Retorna la información completa de la ficha, incluyendo notas, factores y fotografías.
+      operationId: getFichaInspeccionById
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id_ficha
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Ficha de inspección encontrada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FichaInspeccionResponse'
+        '404':
+          description: Ficha no encontrada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    patch:
+      tags:
+        - Fichas de Inspección
+      summary: Editar ficha de inspección propia
+      description: |
+        Permite al Inspector modificar notas, factores o fecha de visita de una ficha de su autoría (RF-7).
+        Reglas de Negocio:
+        - **RB-11**: Solo el Inspector autor de la ficha puede modificarla. Si pertenece a otro Inspector,
+          la solicitud es denegada con HTTP 403.
+        - **RB-10**: `fecha_visita <= HOY` y no puede quedar sin notas y sin factores simultáneamente.
+        - **RNF-S-4**: Genera evento de auditoría.
+      operationId: updateFichaInspeccionPropia
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id_ficha
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FichaInspeccionUpdateRequest'
+      responses:
+        '200':
+          description: Ficha actualizada correctamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FichaInspeccionResponse'
+        '400':
+          description: Datos inválidos o fecha futura.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Intento de editar una ficha que pertenece a otro inspector (RB-11).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Ficha no encontrada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags:
+        - Fichas de Inspección
+      summary: Eliminar ficha de inspección
+      description: Elimina una ficha de inspección y sus fotos en cascada. Exclusivo para Administrador (RB-11).
+      operationId: deleteFichaInspeccion
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id_ficha
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Ficha eliminada exitosamente.
+        '403':
+          description: Solo el Administrador puede eliminar fichas (RB-11).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Ficha no encontrada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/inspections/{id_ficha}/fotos:
+    post:
+      tags:
+        - Fichas de Inspección
+      summary: Adjuntar fotografía de evidencia a una ficha
+      description: |
+        Sube un archivo de imagen vinculado a la ficha de terreno.
+        Reglas de Negocio:
+        - **RB-10 & RNF-S-7**: Formatos permitidos exclusivamente JPEG o PNG. Tamaño máximo 5 MB.
+        - **RB-10**: Máximo 3 fotografías por ficha. Si ya existen 3 fotos, la cuarta es rechazada
+          con el mensaje explícito: "La ficha admite un máximo de 3 fotografías", conservando las 3 existentes.
+        - **RNF-S-7**: El servidor elimina automáticamente los metadatos EXIF (geolocalización y dispositivo)
+          y genera un nombre seguro aleatorio antes del almacenamiento.
+        - **RNF-S-4**: Genera registro de auditoría.
+      operationId: uploadFotoInspeccion
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id_ficha
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - foto
+              properties:
+                foto:
+                  type: string
+                  format: binary
+                  description: Archivo binario de imagen (JPEG o PNG, máx 5 MB).
+      responses:
+        '201':
+          description: Fotografía procesada, sanitizada y guardada exitosamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FotografiaResponse'
+        '400':
+          description: Formato no soportado, tamaño superior a 5 MB, o límite de 3 fotos excedido (RB-10).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                codigo: "LIMITE_FOTOS_EXCEDIDO"
+                mensaje: "La ficha admite un máximo de 3 fotografías."
+        '403':
+          description: Permisos insuficientes o ficha de otro autor.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Ficha no encontrada.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/puntos/{id_punto}/fichas:
+    get:
+      tags:
+        - Fichas de Inspección
+      summary: Consultar historial cronológico de fichas de un punto crítico
+      description: |
+        Retorna el histórico de inspecciones de terreno asociadas a una intersección crítica (RF-6).
+        Reglas de Negocio:
+        - **RB-11**: Acceso restringido a inspectores y administradores. Denegado al rol público con HTTP 403.
+        - **RB-12**: Las fichas se ordenan de más reciente a más antigua según su `fecha_registro` descendente.
+        - La ausencia de fichas devuelve lista vacía `[]` con HTTP 200, distinguiéndose de una falla de red.
+      operationId: getHistorialFichasPunto
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id_punto
+          in: path
+          description: Identificador del punto crítico.
+          required: true
+          schema:
+            type: integer
+            example: 101
+      responses:
+        '200':
+          description: Historial de fichas obtenido exitosamente.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FichaInspeccionResponse'
+        '401':
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Acceso restringido (rol Público denegado - RB-11).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Punto crítico no encontrado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ==========================================================================
+  # ALERTAS DE PROXIMIDAD - CLIENTE MÓVIL (RF-8, RB-13, RB-14, RNF-S-8)
+  # ==========================================================================
+  /api/v1/alerts:
+    post:
+      tags:
+        - Alertas Proximidad
+      summary: Evaluar telemetría de vehículo para alerta de proximidad
+      description: |
+        Endpoint central del servicio de navegación en segundo plano de Android (RF-8).
+        La app envía periódicamente la posición instantánea, velocidad y rumbo del móvil.
+
+        Garantía Estricta de Privacidad (RNF-S-8 & Ley 21.719):
+        Las coordenadas viajan en el cuerpo de la petición (nunca en la URL) y se procesan en
+        memoria volátil para el cálculo cinemático. **NUNCA quedan almacenadas en la base de datos
+        ni en los logs técnicos del servidor.**
+
+        Reglas Cinemáticas Aplicadas:
+        - **RB-13 (Condiciones de activación)**:
+          - Precisión GPS <= 30 m y antigüedad <= 5 s.
+          - Velocidad instantánea >= 1.38 m/s (~5 km/h). Supresión en detenciones por congestión.
+          - Trayectoria en dirección de acercamiento (producto escalar vector velocidad y vector relativo > 0).
+          - Tiempo estimado de arribo TTC <= 12 s.
+        - **RB-14 (Repetición y concurrencia)**:
+          - Máximo 1 aviso por punto crítico durante una misma sesión de conducción (`session_id`).
+          - Si varios puntos cumplen simultáneamente las condiciones, se selecciona el de menor TTC (desempate: menor `id_punto`).
+      operationId: evaluateProximityAlert
+      security: []
+      requestBody:
+        required: true
+        description: Coordenadas instantáneas y telemetría de navegación del conductor.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AlertCheckRequest'
+      responses:
+        '200':
+          description: Evaluación cinemática procesada. Indica si debe sonar/mostrarse la alerta o el motivo de supresión.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertCheckResponse'
+        '400':
+          description: Datos de telemetría corruptos o fuera de rango geográfico.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Error de validación de esquema en los campos enviados.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+
+  # ==========================================================================
+  # AUDITORÍA Y TRAZABILIDAD (RNF-S-4, RNF-S-1, RNF-S-6)
+  # ==========================================================================
+  /api/v1/auditoria:
+    get:
+      tags:
+        - Auditoría y Trazabilidad
+      summary: Consultar bitácora inmutable de auditoría
+      description: |
+        Retorna los registros históricos de eventos del sistema (RNF-S-4).
+        Cubre el 100% de las acciones críticas: inicios de sesión (correctos y fallidos),
+        creación/edición/eliminación de fichas, subida/borrado de fotos, administración de usuarios
+        y calibración del catálogo de factores o ponderaciones de scoring.
+        Exclusivo para el rol Administrador. Los eventos son de solo lectura y nunca se modifican ni eliminan.
+      operationId: getEventosAuditoria
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: accion
+          in: query
+          description: Filtrar por código de acción crítica.
+          schema:
+            type: string
+        - name: id_usuario
+          in: query
+          description: Filtrar eventos asociados a un usuario municipal.
+          schema:
+            type: integer
+        - name: entidad_afectada
+          in: query
+          description: Nombre de la tabla o entidad intervenida (ej. "FICHA_INSPECCION").
+          schema:
+            type: string
+        - name: fecha_desde
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: fecha_hasta
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Bitácora de eventos obtenida exitosamente.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditoriaListResponse'
+        '401':
+          description: No autenticado.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Permisos insuficientes (exclusivo Administrador).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+# ============================================================================
+# COMPONENTES, ESQUEMAS Y SEGURIDAD
+# ============================================================================
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Token de acceso JSON Web Token (JWT) obtenido a través del endpoint `/api/v1/auth/login`.
+        Debe enviarse en la cabecera HTTP: `Authorization: Bearer <token>`.
+
+  schemas:
+    # ------------------------------------------------------------------------
+    # COMUNES Y ERROR
+    # ------------------------------------------------------------------------
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - service
+        - version
+      properties:
+        status:
+          type: string
+          example: "ok"
+        service:
+          type: string
+          example: "alervi-api"
+        version:
+          type: string
+          example: "1.0.0"
+
+    ErrorResponse:
+      type: object
+      required:
+        - codigo
+        - mensaje
+      properties:
+        codigo:
+          type: string
+          example: "SOLICITUD_INVALIDA"
+        mensaje:
+          type: string
+          example: "Los parámetros ingresados no cumplen con el formato requerido."
+        detalle:
+          type: string
+          nullable: true
+          example: "La precisión del GPS reportada excede el límite máximo tolerable."
+
+    ValidationErrorResponse:
+      type: object
+      required:
+        - detail
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            properties:
+              loc:
+                type: array
+                items:
+                  type: string
+              msg:
+                type: string
+              type:
+                type: string
+
+    # ------------------------------------------------------------------------
+    # AUTENTICACIÓN Y USUARIOS
+    # ------------------------------------------------------------------------
+    LoginRequest:
+      type: object
+      required:
+        - correo
+        - password
+      properties:
+        correo:
+          type: string
+          format: email
+          example: "inspector.vial@concepcion.cl"
+        password:
+          type: string
+          format: password
+          example: "ClaveSegura2026*"
+        codigo_mfa:
+          type: string
+          pattern: "^[0-9]{6}$"
+          nullable: true
+          description: "Código TOTP de 6 dígitos para autenticación de dos factores (exigido a administradores según RNF-S-1)."
+          example: "482910"
+
+    LoginResponse:
+      type: object
+      required:
+        - access_token
+        - token_type
+        - expires_in
+        - usuario
+      properties:
+        access_token:
+          type: string
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        token_type:
+          type: string
+          example: "bearer"
+        expires_in:
+          type: integer
+          description: "Tiempo de validez de la sesión en segundos (ej. 28800 = 8 horas)."
+          example: 28800
+        mfa_requerido:
+          type: boolean
+          default: false
+          description: "Indica si se requiere validar el segundo factor de autenticación."
+        usuario:
+          $ref: '#/components/schemas/UsuarioResponse'
+
+    UsuarioResponse:
+      type: object
+      required:
+        - id_usuario
+        - correo
+        - rol
+        - activo
+        - fecha_creacion
+      properties:
+        id_usuario:
+          type: integer
+          example: 3
+        correo:
+          type: string
+          format: email
+          example: "inspector.vial@concepcion.cl"
+        rol:
+          type: string
+          enum: [inspector, administrador]
+          example: "inspector"
+        activo:
+          type: boolean
+          example: true
+        fecha_creacion:
+          type: string
+          format: date-time
+          example: "2026-10-15T09:00:00Z"
+
+    UsuarioCreateRequest:
+      type: object
+      required:
+        - correo
+        - clave
+        - rol
+      properties:
+        correo:
+          type: string
+          format: email
+          example: "nuevo.inspector@concepcion.cl"
+        clave:
+          type: string
+          format: password
+          minLength: 8
+          example: "TempoPassword2026*"
+        rol:
+          type: string
+          enum: [inspector, administrador]
+          example: "inspector"
+
+    UsuarioUpdateRequest:
+      type: object
+      properties:
+        rol:
+          type: string
+          enum: [inspector, administrador]
+        activo:
+          type: boolean
+          description: "Desactivación lógica de la cuenta conforme a §5.1.3 y Ley 21.719."
+        clave_nueva:
+          type: string
+          format: password
+          minLength: 8
+
+    UsuarioListResponse:
+      type: object
+      required:
+        - total
+        - usuarios
+      properties:
+        total:
+          type: integer
+          example: 10
+        usuarios:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsuarioResponse'
+
+    # ------------------------------------------------------------------------
+    # INGESTA Y CARGAS VIALES
+    # ------------------------------------------------------------------------
+    CargaDatosBatchRequest:
+      type: object
+      required:
+        - fuente
+        - anio
+        - registros
+      properties:
+        fuente:
+          type: string
+          example: "CONASET_ARCGIS"
+        anio:
+          type: integer
+          minimum: 2020
+          maximum: 2025
+          example: 2024
+        descripcion:
+          type: string
+          example: "Lote de siniestros Concepción 2024"
+        registros:
+          type: array
+          items:
+            $ref: '#/components/schemas/RegistroSiniestroIngesta'
+
+    RegistroSiniestroIngesta:
+      type: object
+      required:
+        - latitud
+        - longitud
+        - cantidad_siniestros
+      properties:
+        id_origen:
+          type: string
+          description: "Identificador del registro en la fuente original para detección de duplicados (RB-4)."
+          example: "CONASET_CCP_2024_08101_042"
+        nombre_interseccion:
+          type: string
+          example: "Av. Paicaví con Av. Los Carrera"
+        comuna:
+          type: string
+          example: "Concepción"
+        latitud:
+          type: number
+          format: double
+          example: -36.8271
+        longitud:
+          type: number
+          format: double
+          example: -73.0543
+        cantidad_siniestros:
+          type: integer
+          minimum: 1
+          example: 12
+        fallecidos:
+          type: integer
+          minimum: 0
+          default: 0
+          example: 1
+        graves:
+          type: integer
+          minimum: 0
+          default: 0
+          example: 4
+        menos_graves:
+          type: integer
+          minimum: 0
+          default: 0
+          example: 2
+        leves:
+          type: integer
+          minimum: 0
+          default: 0
+          example: 5
+
+    CargaDatosResponse:
+      type: object
+      required:
+        - id_carga
+        - fuente
+        - anio
+        - total_procesados
+        - aceptados
+        - rechazados
+        - duplicados
+        - estado
+        - fecha_carga
+      properties:
+        id_carga:
+          type: integer
+          example: 7
+        fuente:
+          type: string
+          example: "CONASET_ARCGIS"
+        anio:
+          type: integer
+          example: 2024
+        total_procesados:
+          type: integer
+          example: 1633
+        aceptados:
+          type: integer
+          example: 1580
+        rechazados:
+          type: integer
+          example: 45
+        duplicados:
+          type: integer
+          example: 8
+        estado:
+          type: string
+          enum: [COMPLETADA, COMPLETADA_CON_ADVERTENCIAS, FALLIDA]
+          example: "COMPLETADA_CON_ADVERTENCIAS"
+        fecha_carga:
+          type: string
+          format: date-time
+          example: "2026-11-03T01:15:00Z"
+        detalles_rechazo:
+          type: array
+          items:
+            $ref: '#/components/schemas/RegistroRechazadoDetalle'
+
+    RegistroRechazadoDetalle:
+      type: object
+      required:
+        - fila_o_id
+        - motivo
+      properties:
+        fila_o_id:
+          type: string
+          example: "Fila 142 / ID CONASET_08101_99"
+        motivo:
+          type: string
+          example: "Coordenadas fuera del polígono territorial de Concepción (RB-1)."
+
+    # ------------------------------------------------------------------------
+    # GEOJSON Y MAPA PÚBLICO (RETROCOMPATIBLE CON KOTLIN)
+    # ------------------------------------------------------------------------
+    GeoJsonFeatureCollection:
+      type: object
+      required:
+        - type
+        - features
+      properties:
+        type:
+          type: string
+          enum: [FeatureCollection]
+          example: FeatureCollection
+        features:
+          type: array
+          items:
+            $ref: '#/components/schemas/GeoJsonFeature'
+
+    GeoJsonFeature:
+      type: object
+      required:
+        - type
+        - id
+        - geometry
+        - properties
+      properties:
+        type:
+          type: string
+          enum: [Feature]
+          example: Feature
+        id:
+          type: integer
+          example: 101
+        geometry:
+          $ref: '#/components/schemas/GeoJsonPoint'
+        properties:
+          $ref: '#/components/schemas/PuntoCriticoProperties'
+
+    GeoJsonPoint:
+      type: object
+      required:
+        - type
+        - coordinates
+      properties:
+        type:
+          type: string
+          enum: [Point]
+          example: Point
+        coordinates:
+          type: array
+          description: "Coordenadas en formato [Longitud, Latitud] bajo WGS84 (EPSG:4326, RFC 7946)."
+          items:
+            type: number
+          minItems: 2
+          maxItems: 2
+          example: [-73.0543, -36.8271]
+
+    PuntoCriticoProperties:
+      type: object
+      required:
+        - id_punto
+        - nombre_interseccion
+        - comuna
+        - nivel_riesgo
+        - indice_prioridad
+        - total_siniestros
+      properties:
+        id_punto:
+          type: integer
+          example: 101
+        nombre_interseccion:
+          type: string
+          example: "Av. Paicaví con Av. Los Carrera"
+        comuna:
+          type: string
+          example: "Concepción"
+        nivel_riesgo:
+          type: string
+          enum: [CRITICO, ALTO, MEDIO, BAJO]
+          example: "ALTO"
+        indice_prioridad:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 100.0
+          description: "Valor normalizado [0, 100] según fórmula multicriterio de ALERVI."
+          example: 78.5
+        total_siniestros:
+          type: integer
+          example: 24
+        total_fallecidos:
+          type: integer
+          example: 2
+        total_graves:
+          type: integer
+          example: 7
+        tendencia:
+          type: string
+          enum: [ALZA, ESTABLE, BAJA]
+          example: "ALZA"
+        resumen_publico:
+          type: string
+          example: "Intersección con alto flujo peatonal y virajes conflictivos frecuentes."
+
+    PuntoCriticoPublicDetail:
+      type: object
+      required:
+        - id_punto
+        - nombre_interseccion
+        - comuna
+        - nivel_riesgo
+        - indice_prioridad
+        - total_siniestros
+        - latitud
+        - longitud
+        - advertencia_legal
+      properties:
+        id_punto:
+          type: integer
+          example: 101
+        nombre_interseccion:
+          type: string
+          example: "Av. Paicaví con Av. Los Carrera"
+        comuna:
+          type: string
+          example: "Concepción"
+        latitud:
+          type: number
+          example: -36.8271
+        longitud:
+          type: number
+          example: -73.0543
+        nivel_riesgo:
+          type: string
+          enum: [CRITICO, ALTO, MEDIO, BAJO]
+          example: "ALTO"
+        indice_prioridad:
+          type: number
+          example: 78.5
+        total_siniestros:
+          type: integer
+          example: 24
+        total_fallecidos:
+          type: integer
+          example: 2
+        total_graves:
+          type: integer
+          example: 7
+        total_leves:
+          type: integer
+          example: 15
+        tendencia:
+          type: string
+          enum: [ALZA, ESTABLE, BAJA]
+          example: "ALZA"
+        periodo_datos:
+          type: string
+          example: "2020 - 2025"
+        colegio_cercano_m:
+          type: integer
+          nullable: true
+          description: "Distancia al establecimiento educacional más próximo en metros."
+          example: 85
+        paradero_cercano_m:
+          type: integer
+          nullable: true
+          description: "Distancia al paradero de transporte público más próximo en metros."
+          example: 30
+        explicacion_ciudadana:
+          type: string
+          example: "Zona clasificada como de alto riesgo debido a la concentración de lesionados y su cercanía con paraderos de microbuses."
+        advertencia_legal:
+          type: string
+          description: "Cumplimiento con RB-6 y RNF-U-3/U-5 (el índice expresa prioridad relativa)."
+          example: "El índice expresa prioridad de intervención relativa. La ausencia de avisos no garantiza que la vía esté libre de peligro. Conduzca con precaución."
+
+    # ------------------------------------------------------------------------
+    # RANKING Y DETALLE TÉCNICO DSS (RF-3, RB-5, RB-7)
+    # ------------------------------------------------------------------------
+    RankingResponse:
+      type: object
+      required:
+        - total_puntos
+        - configuracion_version
+        - fecha_calculo
+        - comuna
+        - periodo
+        - puntos
+        - puntos_sin_indice
+      properties:
+        total_puntos:
+          type: integer
+          example: 124
+        configuracion_version:
+          type: string
+          description: "Identificador de versión de ponderaciones utilizada en el ranking (RB-8)."
+          example: "v1.0-oficial-2026"
+        fecha_calculo:
+          type: string
+          format: date-time
+          example: "2026-11-03T02:00:00Z"
+        comuna:
+          type: string
+          example: "Concepción"
+        periodo:
+          type: string
+          example: "2020-2025"
+        puntos:
+          type: array
+          description: "Intersecciones ordenadas descendentemente por Índice de Prioridad (RB-7)."
+          items:
+            $ref: '#/components/schemas/PuntoRankingItem'
+        puntos_sin_indice:
+          type: array
+          description: "Intersecciones sin datos suficientes para computar IP, etiquetadas como 'Sin índice disponible' (RB-7)."
+          items:
+            $ref: '#/components/schemas/PuntoSinIndiceItem'
+
+    PuntoRankingItem:
+      type: object
+      required:
+        - id_punto
+        - posicion_ranking
+        - nombre_interseccion
+        - comuna
+        - latitud
+        - longitud
+        - nivel_riesgo
+        - indice_prioridad
+        - severidad_s
+        - frecuencia_f
+        - tendencia_t
+        - contexto_c
+        - total_siniestros
+        - total_fallecidos
+        - total_graves
+        - estado_indice
+      properties:
+        id_punto:
+          type: integer
+          example: 101
+        posicion_ranking:
+          type: integer
+          example: 1
+        nombre_interseccion:
+          type: string
+          example: "Av. Paicaví con Av. Los Carrera"
+        comuna:
+          type: string
+          example: "Concepción"
+        latitud:
+          type: number
+          example: -36.8271
+        longitud:
+          type: number
+          example: -73.0543
+        nivel_riesgo:
+          type: string
+          enum: [CRITICO, ALTO, MEDIO, BAJO]
+          example: "CRITICO"
+        indice_prioridad:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 100.0
+          description: "Índice de Prioridad IP ponderado final (CI-1, RB-5)."
+          example: 89.4
+        severidad_s:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 100.0
+          description: "Componente Severidad KABCO normalizado [0, 100]."
+          example: 92.0
+        frecuencia_f:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 100.0
+          description: "Componente Frecuencia bruta normalizado [0, 100]."
+          example: 85.5
+        tendencia_t:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 100.0
+          description: "Componente Tendencia interanual normalizado [0, 100]."
+          example: 78.0
+        contexto_c:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 100.0
+          description: "Componente Vulnerabilidad del entorno OSM normalizado [0, 100]."
+          example: 95.0
+        total_siniestros:
+          type: integer
+          example: 48
+        total_fallecidos:
+          type: integer
+          example: 3
+        total_graves:
+          type: integer
+          example: 12
+        estado_indice:
+          type: string
+          enum: [CALCULADO]
+          example: "CALCULADO"
+
+    PuntoSinIndiceItem:
+      type: object
+      required:
+        - id_punto
+        - nombre_interseccion
+        - comuna
+        - latitud
+        - longitud
+        - motivo
+        - estado_indice
+      properties:
+        id_punto:
+          type: integer
+          example: 205
+        nombre_interseccion:
+          type: string
+          example: "Calle O'Higgins con Calle Serrano"
+        comuna:
+          type: string
+          example: "Concepción"
+        latitud:
+          type: number
+          example: -36.8310
+        longitud:
+          type: number
+          example: -73.0515
+        motivo:
+          type: string
+          example: "Menos de 2 años con registros válidos en serie 2020-2025"
+        estado_indice:
+          type: string
+          enum: [SIN_INDICE_DISPONIBLE]
+          example: "SIN_INDICE_DISPONIBLE"
+
+    PuntoCriticoTecnicoDetail:
+      type: object
+      required:
+        - id_punto
+        - nombre_interseccion
+        - comuna
+        - latitud
+        - longitud
+        - nivel_riesgo
+        - indice_prioridad
+        - estado_indice
+        - configuracion_pesos_version
+        - desglose_scoring
+        - historico_anual
+        - entorno_urbano
+        - total_fichas_inspeccion
+        - explicacion_tecnica
+        - advertencia_legal
+      properties:
+        id_punto:
+          type: integer
+          example: 101
+        nombre_interseccion:
+          type: string
+          example: "Av. Paicaví con Av. Los Carrera"
+        comuna:
+          type: string
+          example: "Concepción"
+        latitud:
+          type: number
+          example: -36.8271
+        longitud:
+          type: number
+          example: -73.0543
+        nivel_riesgo:
+          type: string
+          enum: [CRITICO, ALTO, MEDIO, BAJO]
+          example: "CRITICO"
+        indice_prioridad:
+          type: number
+          example: 89.4
+        estado_indice:
+          type: string
+          example: "CALCULADO"
+        configuracion_pesos_version:
+          type: string
+          example: "v1.0-oficial-2026"
+        desglose_scoring:
+          $ref: '#/components/schemas/DesgloseFactoresScoring'
+        historico_anual:
+          type: array
+          items:
+            $ref: '#/components/schemas/HistoricoSiniestrosAnual'
+        entorno_urbano:
+          $ref: '#/components/schemas/EntornoUrbanoContexto'
+        total_fichas_inspeccion:
+          type: integer
+          example: 4
+        explicacion_tecnica:
+          type: string
+          example: "Intersección con alta ponderación por severidad KABCO (3 fallecidos) y buffer de 150 m con 2 colegios y 4 paraderos con alta tasa de virajes conflictivos."
+        advertencia_legal:
+          type: string
+          example: "El índice expresa prioridad relativa dentro de Concepción. No representa probabilidad individual de sufrir un siniestro ni certifica la seguridad de la vía (RB-6)."
+
+    DesgloseFactoresScoring:
+      type: object
+      required:
+        - formula
+        - w_severidad
+        - severidad_s
+        - aporte_severidad
+        - w_frecuencia
+        - frecuencia_f
+        - aporte_frecuencia
+        - w_tendencia
+        - tendencia_t
+        - aporte_tendencia
+        - w_contexto
+        - contexto_c
+        - aporte_contexto
+      properties:
+        formula:
+          type: string
+          example: "IP = w1*S + w2*F + w3*T + w4*C"
+        w_severidad:
+          type: number
+          example: 0.35
+        severidad_s:
+          type: number
+          example: 92.0
+        aporte_severidad:
+          type: number
+          example: 32.2
+        w_frecuencia:
+          type: number
+          example: 0.25
+        frecuencia_f:
+          type: number
+          example: 85.5
+        aporte_frecuencia:
+          type: number
+          example: 21.375
+        w_tendencia:
+          type: number
+          example: 0.20
+        tendencia_t:
+          type: number
+          example: 78.0
+        aporte_tendencia:
+          type: number
+          example: 15.6
+        w_contexto:
+          type: number
+          example: 0.20
+        contexto_c:
+          type: number
+          example: 95.0
+        aporte_contexto:
+          type: number
+          example: 19.0
+
+    HistoricoSiniestrosAnual:
+      type: object
+      required:
+        - anio
+        - cantidad_siniestros
+        - fallecidos
+        - graves
+        - menos_graves
+        - leves
+      properties:
+        anio:
+          type: integer
+          example: 2024
+        cantidad_siniestros:
+          type: integer
+          example: 12
+        fallecidos:
+          type: integer
+          example: 1
+        graves:
+          type: integer
+          example: 3
+        menos_graves:
+          type: integer
+          example: 2
+        leves:
+          type: integer
+          example: 6
+
+    EntornoUrbanoContexto:
+      type: object
+      required:
+        - buffer_metros
+        - total_colegios_buffer
+        - total_paraderos_buffer
+      properties:
+        buffer_metros:
+          type: integer
+          example: 150
+        total_colegios_buffer:
+          type: integer
+          example: 2
+        total_paraderos_buffer:
+          type: integer
+          example: 4
+        colegio_mas_cercano:
+          $ref: '#/components/schemas/ElementoUrbanoCercano'
+        paradero_mas_cercano:
+          $ref: '#/components/schemas/ElementoUrbanoCercano'
+
+    ElementoUrbanoCercano:
+      type: object
+      nullable: true
+      required:
+        - id_elemento
+        - nombre
+        - categoria
+        - distancia_m
+      properties:
+        id_elemento:
+          type: integer
+          example: 4501
+        nombre:
+          type: string
+          example: "Liceo Enrique Molina Garmendia"
+        categoria:
+          type: string
+          enum: [colegio, paradero]
+          example: "colegio"
+        distancia_m:
+          type: number
+          example: 64.5
+
+    # ------------------------------------------------------------------------
+    # FACTORES DE RIESGO Y PONDERACIONES (RF-4, RB-5, RB-8)
+    # ------------------------------------------------------------------------
+    FactorRiesgoDto:
+      type: object
+      required:
+        - id_factor
+        - nombre
+        - activo
+      properties:
+        id_factor:
+          type: integer
+          example: 1
+        nombre:
+          type: string
+          maxLength: 60
+          example: "Mala visibilidad por arbolado o letreros"
+        descripcion:
+          type: string
+          nullable: true
+          example: "Obstrucción del cono visual en aproximación a intersección."
+        activo:
+          type: boolean
+          example: true
+
+    FactorRiesgoCreateRequest:
+      type: object
+      required:
+        - nombre
+      properties:
+        nombre:
+          type: string
+          maxLength: 60
+          example: "Cruce peatonal sin semáforo"
+        descripcion:
+          type: string
+          nullable: true
+          example: "Paso de cebra con alto flujo escolar sin regulación semafórica."
+
+    FactorRiesgoUpdateRequest:
+      type: object
+      properties:
+        nombre:
+          type: string
+          maxLength: 60
+        descripcion:
+          type: string
+          nullable: true
+        activo:
+          type: boolean
+
+    PonderacionesScoringDto:
+      type: object
+      required:
+        - version
+        - w_severidad
+        - w_frecuencia
+        - w_tendencia
+        - w_contexto
+        - suma_pesos
+        - fecha_calibracion
+        - modificado_por
+        - es_vigente
+      properties:
+        version:
+          type: string
+          example: "v1.0-oficial-2026"
+        w_severidad:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          example: 0.35
+        w_frecuencia:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          example: 0.25
+        w_tendencia:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          example: 0.20
+        w_contexto:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          example: 0.20
+        suma_pesos:
+          type: number
+          example: 1.0
+        fecha_calibracion:
+          type: string
+          format: date-time
+          example: "2026-10-10T12:00:00Z"
+        modificado_por:
+          type: string
+          example: "admin.transito@concepcion.cl"
+        descripcion_cambio:
+          type: string
+          nullable: true
+          example: "Calibración inicial conforme al avance E1."
+        es_vigente:
+          type: boolean
+          example: true
+
+    PonderacionesUpdateRequest:
+      type: object
+      required:
+        - w_severidad
+        - w_frecuencia
+        - w_tendencia
+        - w_contexto
+      properties:
+        w_severidad:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          example: 0.40
+        w_frecuencia:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          example: 0.20
+        w_tendencia:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          example: 0.20
+        w_contexto:
+          type: number
+          minimum: 0.0
+          maximum: 1.0
+          example: 0.20
+        descripcion_cambio:
+          type: string
+          example: "Ajuste de ponderación dando mayor peso a siniestros graves."
+
+    # ------------------------------------------------------------------------
+    # FICHAS DE INSPECCIÓN TÉCNICA (RF-5, RF-6, RF-7, RB-9 a RB-12, RNF-S-7)
+    # ------------------------------------------------------------------------
+    FichaInspeccionCreateRequest:
+      type: object
+      required:
+        - id_punto
+        - fecha_visita
+      properties:
+        id_punto:
+          type: integer
+          example: 101
+        fecha_visita:
+          type: string
+          format: date
+          description: "Fecha de visita a terreno (RB-10: estrictamente fecha_visita <= HOY)."
+          example: "2026-11-02"
+        notas:
+          type: string
+          nullable: true
+          maxLength: 2000
+          description: "Observaciones técnicas del inspector. Sin datos personales de terceros (RB-10, RNF-S-5)."
+          example: "Se constata paradero colapsado en hora punta mañana con bloqueo de visión hacia el cruce."
+        factores_riesgo_ids:
+          type: array
+          items:
+            type: integer
+          description: "Lista de IDs de factores de riesgo activos observados (RB-10 exige al menos un factor o una nota)."
+          example: [1, 3]
+
+    FichaInspeccionUpdateRequest:
+      type: object
+      properties:
+        fecha_visita:
+          type: string
+          format: date
+          description: "Fecha de visita (RB-10: no puede ser futura)."
+        notas:
+          type: string
+          nullable: true
+          maxLength: 2000
+        factores_riesgo_ids:
+          type: array
+          items:
+            type: integer
+
+    FichaInspeccionResponse:
+      type: object
+      required:
+        - id_ficha
+        - id_punto
+        - nombre_interseccion
+        - id_inspector
+        - correo_inspector
+        - fecha_visita
+        - fecha_registro
+        - factores_riesgo
+        - fotografias
+      properties:
+        id_ficha:
+          type: integer
+          example: 15
+        id_punto:
+          type: integer
+          example: 101
+        nombre_interseccion:
+          type: string
+          example: "Av. Paicaví con Av. Los Carrera"
+        id_inspector:
+          type: integer
+          description: "ID del inspector autor asignado por autenticación (RB-9)."
+          example: 2
+        correo_inspector:
+          type: string
+          example: "inspector.vial@concepcion.cl"
+        fecha_visita:
+          type: string
+          format: date
+          example: "2026-11-02"
+        fecha_registro:
+          type: string
+          format: date-time
+          description: "Fecha y hora de almacenamiento generada por el servidor."
+          example: "2026-11-02T16:30:00Z"
+        notas:
+          type: string
+          nullable: true
+          example: "Paradero con sobredemanda de locomoción colectiva en hora punta matutina."
+        factores_riesgo:
+          type: array
+          items:
+            $ref: '#/components/schemas/FactorRiesgoDto'
+        fotografias:
+          type: array
+          items:
+            $ref: '#/components/schemas/FotografiaResponse'
+
+    FichaInspeccionListResponse:
+      type: object
+      required:
+        - total
+        - fichas
+      properties:
+        total:
+          type: integer
+          example: 45
+        fichas:
+          type: array
+          items:
+            $ref: '#/components/schemas/FichaInspeccionResponse'
+
+    FotografiaResponse:
+      type: object
+      required:
+        - id_foto
+        - id_ficha
+        - ruta
+        - url
+        - tamano_bytes
+        - fecha_subida
+      properties:
+        id_foto:
+          type: integer
+          example: 28
+        id_ficha:
+          type: integer
+          example: 15
+        ruta:
+          type: string
+          description: "Ruta relativa persistida en base de datos (Tabla 5.1.2)."
+          example: "inspecciones/15/foto_f7a8c9b1.jpg"
+        url:
+          type: string
+          description: "URL pública o firmada de descarga (Supabase Storage / CDN)."
+          example: "https://api.alervi.cl/storage/inspecciones/15/foto_f7a8c9b1.jpg"
+        tamano_bytes:
+          type: integer
+          example: 412500
+        fecha_subida:
+          type: string
+          format: date-time
+          example: "2026-11-02T16:35:10Z"
+
+    # ------------------------------------------------------------------------
+    # ALERTAS DE PROXIMIDAD (RETROCOMPATIBLE CON KOTLIN)
+    # ------------------------------------------------------------------------
+    AlertCheckRequest:
+      type: object
+      required:
+        - session_id
+        - latitude
+        - longitude
+        - speed_mps
+        - timestamp
+      properties:
+        session_id:
+          type: string
+          format: uuid
+          description: "Identificador único de la sesión de conducción iniciado en la app móvil (RB-14)."
+          example: "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d"
+        latitude:
+          type: number
+          format: double
+          minimum: -90.0
+          maximum: 90.0
+          example: -36.8285
+        longitude:
+          type: number
+          format: double
+          minimum: -180.0
+          maximum: 180.0
+          example: -73.0550
+        speed_mps:
+          type: number
+          format: float
+          minimum: 0.0
+          description: "Velocidad instantánea en metros por segundo (1.38 m/s ≈ 5 km/h)."
+          example: 13.88
+        heading_degrees:
+          type: number
+          format: float
+          minimum: 0.0
+          maximum: 360.0
+          nullable: true
+          description: "Rumbo de desplazamiento del móvil en grados azimut (0 = Norte, 90 = Este)."
+          example: 45.0
+        accuracy_m:
+          type: number
+          format: float
+          minimum: 0.0
+          nullable: true
+          description: "Precisión horizontal del GPS en metros (según FusedLocationProvider). RB-13 descarta > 30m."
+          example: 8.5
+        timestamp:
+          type: string
+          format: date-time
+          description: "Marca de tiempo de la captura GPS (ISO 8601). RB-13 descarta datos de más de 5 s."
+          example: "2026-11-03T02:30:00Z"
+
+    AlertCheckResponse:
+      type: object
+      required:
+        - alerta_activa
+        - telemetria_status
+      properties:
+        alerta_activa:
+          type: boolean
+          description: "Verdadero si la app debe emitir la alerta sonora y visual en pantalla."
+          example: true
+        telemetria_status:
+          type: string
+          enum:
+            - EVALUADO_CON_ALERTA
+            - SUPRIMIDO_VELOCIDAD_BAJA
+            - SUPRIMIDO_TRAYECTORIA_DIVERGENTE
+            - SUPRIMIDO_TTC_MAYOR_12S
+            - SUPRIMIDO_PUNTO_YA_ADVERTIDO
+            - BAJA_PRECISION_GPS
+            - TELEMETRIA_OBSOLETA
+            - SIN_PUNTOS_EN_RANGO
+          example: "EVALUADO_CON_ALERTA"
+        alerta:
+          $ref: '#/components/schemas/AlertDetail'
+
+    AlertDetail:
+      type: object
+      nullable: true
+      required:
+        - id_punto
+        - nombre_interseccion
+        - nivel_riesgo
+        - distancia_m
+        - ttc_segundos
+        - mensaje_visual
+        - patron_sonoro
+      properties:
+        id_punto:
+          type: integer
+          example: 101
+        nombre_interseccion:
+          type: string
+          example: "Av. Paicaví con Av. Los Carrera"
+        nivel_riesgo:
+          type: string
+          enum: [CRITICO, ALTO, MEDIO]
+          example: "ALTO"
+        distancia_m:
+          type: number
+          format: float
+          description: "Distancia en metros hacia el punto crítico."
+          example: 112.5
+        ttc_segundos:
+          type: number
+          format: float
+          description: "Tiempo estimado de llegada (Time-To-Collision) en segundos (siempre <= 12 s)."
+          example: 8.1
+        mensaje_visual:
+          type: string
+          description: "Texto breve y legible a un golpe de vista según RNF-U-4 (sin exigir interacción táctil)."
+          example: "⚠️ Zona de Riesgo a 110 m: Paicaví / Carrera"
+        patron_sonoro:
+          type: string
+          enum: [BEEP_URGENTE, BEEP_PRECAUCION, TONO_CORTO]
+          description: "Tipo de aviso sonoro que el servicio de audio de Android debe reproducir."
+          example: "BEEP_PRECAUCION"
+        instruccion_seguridad:
+          type: string
+          example: "Reduzca velocidad y preste atención al cruce"
+
+    # ------------------------------------------------------------------------
+    # AUDITORÍA (RNF-S-4)
+    # ------------------------------------------------------------------------
+    EventoAuditoriaResponse:
+      type: object
+      required:
+        - id_evento
+        - accion
+        - fecha_hora
+      properties:
+        id_evento:
+          type: integer
+          example: 1042
+        id_usuario:
+          type: integer
+          nullable: true
+          example: 3
+        correo_usuario:
+          type: string
+          nullable: true
+          example: "inspector.vial@concepcion.cl"
+        accion:
+          type: string
+          description: "Acción crítica ejecutada perteneciente a la lista cerrada (Tabla 5.1.2)."
+          enum:
+            - LOGIN_CORRECTO
+            - LOGIN_FALLIDO
+            - LOGOUT
+            - CREAR_FICHA
+            - EDITAR_FICHA
+            - ELIMINAR_FICHA
+            - SUBIR_FOTO
+            - ELIMINAR_FOTO
+            - CREAR_USUARIO
+            - EDITAR_USUARIO
+            - DESACTIVAR_USUARIO
+            - CREAR_FACTOR
+            - EDITAR_FACTOR
+            - CALIBRAR_PONDERACIONES
+            - INGESTA_CONASET
+          example: "CREAR_FICHA"
+        entidad_afectada:
+          type: string
+          nullable: true
+          example: "FICHA_INSPECCION"
+        id_afectado:
+          type: string
+          nullable: true
+          example: "15"
+        fecha_hora:
+          type: string
+          format: date-time
+          example: "2026-11-02T16:30:00Z"
+        detalles:
+          type: string
+          nullable: true
+          example: "Creación de ficha técnica en punto 101 con 2 factores."
+
+    AuditoriaListResponse:
+      type: object
+      required:
+        - total
+        - eventos
+      properties:
+        total:
+          type: integer
+          example: 320
+        eventos:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventoAuditoriaResponse'
