@@ -1,11 +1,14 @@
 [tool.ruff]
-# Set the maximum line length to 88.
+# Longitud maxima de linea
 line-length = 88
 
 [tool.ruff.lint]
 select = ["E", "F", "I"] # pycodestyle, pyflakes, isort
-ignore = []
+# Se ignora E501 (line-too-long) conforme a la recomendacion oficial de Ruff
+# para APIs con OpenAPI/Swagger, URLs y cadenas largas descriptivas.
+ignore = ["E501"]
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 addopts = "--cov=app --cov-report=term-missing"
 testpaths = ["tests"]

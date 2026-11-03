@@ -1,0 +1,18 @@
+{
+  "type": "FeatureCollection",
+  "crs": { "type": "name", "properties": { "name": "EPSG:4326" } },
+  "features": [
+    {"type": "Feature", "id": 1, "geometry": {"type": "Point", "coordinates": [-73.049812, -36.826974]}, "properties": {"FID": 1, "AÑO": 2020, "Idptcritic": 900001, "Latitud": -36.826974, "longitud": -73.049812, "Cantidad_d": 5, "Fallecidos": 0, "TOTAL_LESI": 9, "GRAVES": 0, "MENOS_GRAV": 2, "LEVES": 7}},
+    {"type": "Feature", "id": 2, "geometry": {"type": "Point", "coordinates": [-73.049812, -36.826974]}, "properties": {"FID": 2, "AÑO": 2021, "Idptcritic": 900001, "Latitud": -36.826974, "longitud": -73.049812, "Cantidad_d": 3, "Fallecidos": 1, "TOTAL_LESI": 4, "GRAVES": 1, "MENOS_GRAV": 1, "LEVES": 2}},
+    {"type": "Feature", "id": 3, "geometry": {"type": "Point", "coordinates": [-73.0498121, -36.8269738]}, "properties": {"FID": 3, "AÑO": 2022, "Idptcritic": 900002, "Latitud": -36.8269738, "longitud": -73.0498121, "Cantidad_d": 2, "Fallecidos": 0, "TOTAL_LESI": 2, "GRAVES": 0, "MENOS_GRAV": 1, "LEVES": 1}},
+    {"type": "Feature", "id": 4, "geometry": {"type": "Point", "coordinates": [-73.0301, -36.8001]}, "properties": {"FID": 4, "AÑO": 2020, "Idptcritic": 900003, "Latitud": -36.8001, "longitud": -73.0301, "Cantidad_d": 4, "Fallecidos": 0, "TOTAL_LESI": 6, "GRAVES": 1, "MENOS_GRAV": 0, "LEVES": 5}},
+    {"type": "Feature", "id": 5, "geometry": {"type": "Point", "coordinates": [-73.0301, -36.8001]}, "properties": {"FID": 5, "AÑO": 2020, "Idptcritic": 900004, "Latitud": -36.8001, "longitud": -73.0301, "Cantidad_d": 1, "Fallecidos": 0, "TOTAL_LESI": 1, "GRAVES": 0, "MENOS_GRAV": 0, "LEVES": 1}},
+    {"type": "Feature", "id": 6, "geometry": {"type": "Point", "coordinates": [-73.0612, -36.8452]}, "properties": {"FID": 6, "AÑO": 2023, "Idptcritic": 900005, "Latitud": -36.8452, "longitud": -73.0612, "Cantidad_d": 2, "Fallecidos": 0, "TOTAL_LESI": 2, "GRAVES": 0, "MENOS_GRAV": 2, "LEVES": 0}},
+    {"type": "Feature", "id": 7, "geometry": {"type": "Point", "coordinates": [-73.0805, -36.859]}, "properties": {"FID": 7, "AÑO": 2024, "Idptcritic": 900006, "Latitud": -36.859, "longitud": -73.0805, "Cantidad_d": 6, "Fallecidos": 2, "TOTAL_LESI": 6, "GRAVES": 2, "MENOS_GRAV": 1, "LEVES": 3}},
+    {"type": "Feature", "id": 8, "geometry": {"type": "Point", "coordinates": [-73.0123, -36.7822]}, "properties": {"FID": 8, "AÑO": 2025, "Idptcritic": 900007, "Latitud": -36.7822, "longitud": -73.0123, "Cantidad_d": 1, "Fallecidos": 0, "TOTAL_LESI": 1, "GRAVES": 0, "MENOS_GRAV": 0, "LEVES": 1}},
+    {"type": "Feature", "id": 9, "geometry": {"type": "Point", "coordinates": [-73.092, -36.8011]}, "properties": {"FID": 9, "AÑO": 2021, "Idptcritic": 900008, "Latitud": -36.8011, "longitud": -73.092, "Cantidad_d": 3, "Fallecidos": 0, "TOTAL_LESI": 5, "GRAVES": 0, "MENOS_GRAV": 1, "LEVES": 4}},
+    {"type": "Feature", "id": 10, "geometry": {"type": "Point", "coordinates": [-72.5, -36.8]}, "properties": {"FID": 10, "AÑO": 2022, "Idptcritic": 900009, "Latitud": -36.8, "longitud": -72.5, "Cantidad_d": 2, "Fallecidos": 0, "TOTAL_LESI": 2, "GRAVES": 0, "MENOS_GRAV": 0, "LEVES": 2}},
+    {"type": "Feature", "id": 11, "geometry": {"type": "Point", "coordinates": [-73.04, -36.81]}, "properties": {"FID": 11, "AÑO": 2019, "Idptcritic": 900010, "Latitud": -36.81, "longitud": -73.04, "Cantidad_d": 2, "Fallecidos": 0, "TOTAL_LESI": 2, "GRAVES": 0, "MENOS_GRAV": 0, "LEVES": 2}},
+    {"type": "Feature", "id": 12, "geometry": {"type": "Point", "coordinates": [-73.07, -36.83]}, "properties": {"FID": 12, "AÑO": 2023, "Idptcritic": 900011, "Latitud": -36.83, "longitud": -73.07, "Cantidad_d": 0, "Fallecidos": 0, "TOTAL_LESI": 0, "GRAVES": 0, "MENOS_GRAV": 0, "LEVES": 0}}
+  ]
+}
