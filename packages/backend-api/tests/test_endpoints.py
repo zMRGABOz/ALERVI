@@ -55,7 +55,9 @@ def test_cors_header():
         },
     )
     assert response.status_code == 200
-    assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
+    assert (
+        response.headers.get("access-control-allow-origin") == "http://localhost:3000"
+    )
 
 
 def test_auth_login():
@@ -84,7 +86,11 @@ def test_usuarios_crud():
     # Crear
     res_create = client.post(
         "/api/v1/usuarios",
-        json={"correo": "nuevo@alervi.test", "clave": "PasswordSegura2026*", "rol": "inspector"},
+        json={
+            "correo": "nuevo@alervi.test",
+            "clave": "PasswordSegura2026*",
+            "rol": "inspector",
+        },
     )
     assert res_create.status_code == 201
     assert res_create.json()["correo"] == "nuevo@alervi.test"

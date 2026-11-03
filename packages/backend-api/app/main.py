@@ -147,8 +147,12 @@ async def login(payload: LoginRequest, db: Session = Depends(get_db)):
     summary="Listar cuentas de usuarios municipales",
 )
 async def list_usuarios(
-    rol: Optional[str] = Query(None, description="Filtrar por rol (inspector | administrador)"),
-    activo: Optional[bool] = Query(None, description="Filtrar por estado activo/inactivo"),
+    rol: Optional[str] = Query(
+        None, description="Filtrar por rol (inspector | administrador)"
+    ),
+    activo: Optional[bool] = Query(
+        None, description="Filtrar por estado activo/inactivo"
+    ),
     limit: Optional[int] = Query(20, description="Límite de registros"),
     offset: Optional[int] = Query(0, description="Desplazamiento"),
     db: Session = Depends(get_db),
@@ -280,8 +284,12 @@ async def cargar_datos_viales(
     summary="Capa pública de puntos críticos (GeoJSON)",
 )
 async def get_puntos_criticos_publicos(
-    comuna: Optional[str] = Query(None, description="Filtrar puntos por nombre de comuna (ej. 'Concepción')"),
-    bbox: Optional[str] = Query(None, description="Bounding box en formato 'minLon,minLat,maxLon,maxLat'"),
+    comuna: Optional[str] = Query(
+        None, description="Filtrar puntos por nombre de comuna (ej. 'Concepción')"
+    ),
+    bbox: Optional[str] = Query(
+        None, description="Bounding box en formato 'minLon,minLat,maxLon,maxLat'"
+    ),
     db: Session = Depends(get_db),
 ):
     """Capa pública de puntos críticos (ubicación, nivel y antecedentes públicos en GeoJSON) (RF-2)."""
@@ -339,9 +347,15 @@ async def get_puntos_criticos_publicos(
 )
 async def get_ranking(
     comuna: Optional[str] = Query("Concepción", description="Comuna de análisis"),
-    anio: Optional[int] = Query(None, description="Filtrar cálculo para un año específico (2020-2025)"),
-    periodo_inicio: Optional[int] = Query(2020, description="Año de inicio del rango temporal analizado"),
-    periodo_fin: Optional[int] = Query(2025, description="Año de término del rango temporal analizado"),
+    anio: Optional[int] = Query(
+        None, description="Filtrar cálculo para un año específico (2020-2025)"
+    ),
+    periodo_inicio: Optional[int] = Query(
+        2020, description="Año de inicio del rango temporal analizado"
+    ),
+    periodo_fin: Optional[int] = Query(
+        2025, description="Año de término del rango temporal analizado"
+    ),
     limit: Optional[int] = Query(10, description="Cantidad de puntos a retornar"),
     offset: Optional[int] = Query(0, description="Desplazamiento para paginación"),
     db: Session = Depends(get_db),
@@ -416,7 +430,9 @@ async def get_ranking(
     summary="Detalle técnico y explicación del índice de un punto crítico",
 )
 async def get_detalle_punto_tecnico(
-    id_punto: int = Path(..., description="Identificador único del punto crítico", example=101),
+    id_punto: int = Path(
+        ..., description="Identificador único del punto crítico", example=101
+    ),
     db: Session = Depends(get_db),
 ):
     """Detalle del punto, desglose de factores y explicación del índice (RF-3)."""
@@ -502,11 +518,36 @@ async def list_factores_riesgo(
 ):
     """Configura factores de riesgo y ponderaciones del índice de priorización (RF-4)."""
     return [
-        FactorRiesgoDto(id_factor=1, nombre="Poca visibilidad", descripcion="Obstáculos visuales", activo=True),
-        FactorRiesgoDto(id_factor=2, nombre="Falta de señalización", descripcion="Señalización deficiente", activo=True),
-        FactorRiesgoDto(id_factor=3, nombre="Exceso de velocidad", descripcion="Velocidad sobre el límite", activo=True),
-        FactorRiesgoDto(id_factor=4, nombre="Cruce peatonal inseguro", descripcion="Sin protección peatonal", activo=True),
-        FactorRiesgoDto(id_factor=5, nombre="Iluminación deficiente", descripcion="Mala iluminación nocturna", activo=True),
+        FactorRiesgoDto(
+            id_factor=1,
+            nombre="Poca visibilidad",
+            descripcion="Obstáculos visuales",
+            activo=True,
+        ),
+        FactorRiesgoDto(
+            id_factor=2,
+            nombre="Falta de señalización",
+            descripcion="Señalización deficiente",
+            activo=True,
+        ),
+        FactorRiesgoDto(
+            id_factor=3,
+            nombre="Exceso de velocidad",
+            descripcion="Velocidad sobre el límite",
+            activo=True,
+        ),
+        FactorRiesgoDto(
+            id_factor=4,
+            nombre="Cruce peatonal inseguro",
+            descripcion="Sin protección peatonal",
+            activo=True,
+        ),
+        FactorRiesgoDto(
+            id_factor=5,
+            nombre="Iluminación deficiente",
+            descripcion="Mala iluminación nocturna",
+            activo=True,
+        ),
     ]
 
 
@@ -517,7 +558,9 @@ async def list_factores_riesgo(
     tags=["Factores y Ponderaciones"],
     summary="Registrar nuevo factor de riesgo",
 )
-async def create_factor_riesgo(payload: FactorRiesgoCreateRequest, db: Session = Depends(get_db)):
+async def create_factor_riesgo(
+    payload: FactorRiesgoCreateRequest, db: Session = Depends(get_db)
+):
     """Registra un nuevo factor de riesgo en el catálogo municipal (RF-4)."""
     return FactorRiesgoDto(
         id_factor=6,
@@ -543,7 +586,8 @@ async def update_factor_riesgo(
     return FactorRiesgoDto(
         id_factor=id_factor,
         nombre=payload.nombre or "Poca visibilidad",
-        descripcion=payload.descripcion or "Obstáculos o geometría que limitan la visión.",
+        descripcion=payload.descripcion
+        or "Obstáculos o geometría que limitan la visión.",
         activo=payload.activo if payload.activo is not None else True,
     )
 
@@ -578,7 +622,9 @@ async def get_ponderaciones_vigentes(db: Session = Depends(get_db)):
     tags=["Factores y Ponderaciones"],
     summary="Calibrar y versionar ponderaciones del índice",
 )
-async def update_ponderaciones(payload: PonderacionesUpdateRequest, db: Session = Depends(get_db)):
+async def update_ponderaciones(
+    payload: PonderacionesUpdateRequest, db: Session = Depends(get_db)
+):
     """Calibra y versiona las ponderaciones del índice de priorización (RF-4, RB-8)."""
     return PonderacionesScoringDto(
         version="v1.1-calibrada-2026",
@@ -586,7 +632,10 @@ async def update_ponderaciones(payload: PonderacionesUpdateRequest, db: Session 
         w_frecuencia=payload.w_frecuencia,
         w_tendencia=payload.w_tendencia,
         w_contexto=payload.w_contexto,
-        suma_pesos=payload.w_severidad + payload.w_frecuencia + payload.w_tendencia + payload.w_contexto,
+        suma_pesos=payload.w_severidad
+        + payload.w_frecuencia
+        + payload.w_tendencia
+        + payload.w_contexto,
         fecha_calibracion="2026-11-03T15:00:00Z",
         modificado_por="admin@alervi.test",
         descripcion_cambio=payload.descripcion_cambio or "Calibración actualizada.",
@@ -619,7 +668,12 @@ async def create_ficha_inspeccion(
         fecha_registro=None,
         notas=payload.notas or "Visita a terreno realizada según protocolo.",
         factores_riesgo=[
-            FactorRiesgoDto(id_factor=1, nombre="Poca visibilidad", descripcion="Visibilidad reducida", activo=True)
+            FactorRiesgoDto(
+                id_factor=1,
+                nombre="Poca visibilidad",
+                descripcion="Visibilidad reducida",
+                activo=True,
+            )
         ],
         fotografias=[],
     )
@@ -632,7 +686,9 @@ async def create_ficha_inspeccion(
     tags=["Fichas de Inspección"],
     summary="Consultar detalle de una ficha de inspección",
 )
-async def get_ficha_inspeccion_by_id(id_ficha: int = Path(...), db: Session = Depends(get_db)):
+async def get_ficha_inspeccion_by_id(
+    id_ficha: int = Path(...), db: Session = Depends(get_db)
+):
     """Retorna la información completa de una ficha de inspección técnica."""
     return FichaInspeccionResponse(
         id_ficha=id_ficha,
@@ -644,7 +700,12 @@ async def get_ficha_inspeccion_by_id(id_ficha: int = Path(...), db: Session = De
         fecha_registro=None,
         notas="Inspección realizada con equipo municipal.",
         factores_riesgo=[
-            FactorRiesgoDto(id_factor=1, nombre="Poca visibilidad", descripcion="Visibilidad reducida", activo=True)
+            FactorRiesgoDto(
+                id_factor=1,
+                nombre="Poca visibilidad",
+                descripcion="Visibilidad reducida",
+                activo=True,
+            )
         ],
         fotografias=[
             FotografiaResponse(
@@ -682,7 +743,12 @@ async def update_ficha_inspeccion(
         fecha_registro=None,
         notas=payload.notas or "Notas de inspección actualizadas.",
         factores_riesgo=[
-            FactorRiesgoDto(id_factor=1, nombre="Poca visibilidad", descripcion="Visibilidad reducida", activo=True)
+            FactorRiesgoDto(
+                id_factor=1,
+                nombre="Poca visibilidad",
+                descripcion="Visibilidad reducida",
+                activo=True,
+            )
         ],
         fotografias=[],
     )
@@ -733,7 +799,12 @@ async def get_historial_fichas_punto(
             fecha_registro=None,
             notas="Visita de terreno reciente.",
             factores_riesgo=[
-                FactorRiesgoDto(id_factor=1, nombre="Poca visibilidad", descripcion="Visibilidad reducida", activo=True)
+                FactorRiesgoDto(
+                    id_factor=1,
+                    nombre="Poca visibilidad",
+                    descripcion="Visibilidad reducida",
+                    activo=True,
+                )
             ],
             fotografias=[],
         )

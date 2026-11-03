@@ -12,6 +12,7 @@ except ImportError:
     from pydantic import (
         BaseModel as BaseSettings,  # fallback para entornos sin pydantic-settings
     )
+
     SettingsConfigDict = None
 
 
