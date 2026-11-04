@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  RNF-S-3 (E1 §4.3): sin tráfico sin cifrar. Configuración base para TODA build.
+  El flavor `local` en debug permite cleartext únicamente hacia 10.0.2.2/localhost
+  mediante la overlay de recursos en src/debug/res/xml (debug-only).
+  Prohibido: URLs de Render, Vercel o Supabase en la app (RD-01, ejecución local).
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

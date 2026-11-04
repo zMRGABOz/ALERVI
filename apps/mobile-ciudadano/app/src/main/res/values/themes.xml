@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Tema base. Sin ActionBar: la UI es 100 % Jetpack Compose (ALT-1, E1 §8.1)
+      y las alertas no exigen interacción (RD-04).
+    -->
+    <style name="Theme.Alervi" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/alervi_primario</item>
+        <item name="android:windowBackground">@android:color/white</item>
+    </style>
+</resources>

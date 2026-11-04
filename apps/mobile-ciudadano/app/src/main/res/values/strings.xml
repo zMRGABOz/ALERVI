@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- RNF-U-3 (E1 §4.4): 100 % de los textos propios en español. -->
+<resources>
+    <string name="app_name" translatable="false">ALERVI</string>
+
+    <!-- Pantalla de andamiaje. -->
+    <string name="pantalla_andamiaje_mensaje">Aplicación ciudadana de alertas viales para Concepción. Pantalla base de construcción.</string>
+    <string name="pantalla_andamiaje_descripcion">Pantalla inicial de ALERVI en construcción</string>
+    <string name="entorno_mock">Entorno de demostración: funciona sin conexión ni backend.</string>
+    <string name="entorno_local">Entorno local: consulta al backend en 10.0.2.2:8000.</string>
+</resources>

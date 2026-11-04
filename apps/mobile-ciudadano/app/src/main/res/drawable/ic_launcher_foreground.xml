@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foreground del icono adaptativo (minSdk 28 >= 26: solo se requiere anydpi-v26). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Triángulo de advertencia vial -->
+    <path
+        android:fillColor="#F3F5F7"
+        android:pathData="M54,30 L74,66 L34,66 Z" />
+    <path
+        android:fillColor="#EF4058"
+        android:pathData="M54,40 L66,62 L42,62 Z" />
+    <!-- Punto de ubicación -->
+    <path
+        android:fillColor="#0C8882"
+        android:pathData="M54,70 m-4,0 a4,4 0 1,1 8,0 a4,4 0 1,1 -8,0" />
+</vector>
