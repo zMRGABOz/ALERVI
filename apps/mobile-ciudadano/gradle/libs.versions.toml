@@ -17,7 +17,9 @@ retrofit = "2.11.0"
 okhttp = "4.12.0"
 maplibre = "11.8.2"
 coroutines = "1.9.0"
+datastore = "1.1.1"
 junit = "4.13.2"
+mockwebserver = "4.12.0"
 
 [libraries]
 # Jetpack Compose (ALT-1, E1 §8.1)
@@ -43,6 +45,10 @@ kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
 retrofit-kotlinx-serialization = { group = "com.squareup.retrofit2", name = "converter-kotlinx-serialization", version.ref = "retrofit" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+
+# Persistencia local mínima (consentimiento, caché de puntos públicos)
+androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 
 # Mapa: MapLibre Native + teselas raster CARTO Positron (decisión D-1;
 # atribución OSM REF-10 y CARTO REF-11; prohibidos Google Maps/Mapbox SDK, RD-01/RD-03)
@@ -51,6 +57,7 @@ maplibre-android = { group = "org.maplibre.gl", name = "android-sdk", version.re
 # Pruebas (RNF-M-1: ≥ 80 % líneas y ramas)
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
+mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "mockwebserver" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

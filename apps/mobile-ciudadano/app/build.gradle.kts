@@ -71,7 +71,7 @@ android {
             versionNameSuffix = "-local"
             // Backend local del repo (docker compose up): FastAPI en 10.0.2.2:8000.
             buildConfigField("boolean", "MODO_SIN_RED", "false")
-            buildConfigField("String", "BASE_URL", "\"http://10.0.2.2:8000\"")
+            buildConfigField("String", "BASE_URL", "\"http://10.0.2.2:8000/\"")
         }
     }
 
@@ -118,6 +118,11 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.kotlinx.serialization)
     implementation(libs.okhttp)
+    implementation(libs.kotlinx.coroutines.android)
+
+    // Persistencia local mínima (consentimiento Ley 21.719 §5.3 y caché de puntos
+    // públicos R-8; jamás coordenadas del ciudadano: RNF-S-8)
+    implementation(libs.androidx.datastore.preferences)
 
     // Mapa (D-1: MapLibre + CARTO Positron; prohibidos Google Maps/Mapbox)
     implementation(libs.maplibre.android)
@@ -125,4 +130,5 @@ dependencies {
     // Pruebas unitarias (RNF-M-1)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.mockwebserver)
 }
