@@ -177,6 +177,10 @@ def main():
         conexion.commit()
     conexion.close()
 
+    print("======================")
+    print("CARGA DE DATOS CONASET")
+    print("======================")
+
     print(f"Filas leidas: {len(features)}")
     print(f"Filas rechazadas: {sum(rechazos.values())}")
     for motivo, n in rechazos.items():
@@ -184,6 +188,7 @@ def main():
     print(f"Puntos distintos: {len(ids)}")
     print(f"Registros (punto, anio): {len(fusionados)}")
     print("MODO PRUEBA: No se guardó nada en la BD" if args.dry_run else "Guardado en la base de datos")
+    print("")
 
 if __name__ == "__main__":
     sys.exit(main())

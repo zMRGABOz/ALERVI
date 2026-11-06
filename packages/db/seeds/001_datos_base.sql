@@ -9,11 +9,6 @@ BEGIN;
 -- Contraseña local para el rol de la API
 ALTER ROLE alervi_app PASSWORD 'alervi_app_dev_2026';
 
--- COMUNA
--- Poligono provisorio, corresponde a un rectangulo aproximado al rededor de Concepción
-INSERT INTO comuna (codigo_comuna, nombre, geometry) VALUES
-    ('08101', 'Concepción', ST_Multi(ST_MakeEnvelope(-73.12, -36.88, -72.95, -36.74, 4326)));
-
 -- USUARIO
 -- Clave de ambas: Dev-2026-ALERVI (Se guarda el hash)
 INSERT INTO usuario (correo, hash_clave, rol) VALUES

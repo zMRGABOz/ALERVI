@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 
 # Carga los datos de desarrollo
 
@@ -10,9 +11,11 @@ if [ "$(psql -tAc 'SELECT count(*) FROM usuario')" != "0" ]; then
     exit 0
 fi
 
+python ingest/cargar_comuna.py ingest/data/poligono_concepcion.geojson
+python ingest/cargar_conaset.py ingest/data/puntos_conaset_oficial.geojson
+python ingest/cargar_osm.py ingest/data/elementos_osm_concepcion.geojson
+
 for f in seeds/*.sql; do
     echo "Aplicando $f"
-    psql -v ON_ERROR_STOP=1 -v app_password="$APP_DB_PASSWORD" -f "$f" || exit 1
+    psql -v ON_ERROR_STOP=1 -v app_password="$APP_DB_PASSWORD" -f "$f"
 done
-
-python ingest/cargar_conaset.py ingest/data/conaset_sintetico.geojson
