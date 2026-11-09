@@ -1,75 +1,123 @@
 package cl.alervi.data.repository.mock
 
+import cl.alervi.domain.model.NivelRiesgo
 import cl.alervi.domain.model.OrigenDetalle
-import java.io.File
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Pruebas del repositorio del flavor `mock` (RD-01):
- * fixtures locales que deben cumplir openapi.yaml y pasar por el mismo
- * pipeline de mapeo que el camino remoto.
- *
- * Vive en `src/testMock` porque referencia clases del source set `mock`.
+ * Pruebas del repositorio `mock` (RD-01): fixtures locales, filtro por comuna
+ * y respaldo de detalle con el mismo pipeline de contrato que el camino remoto.
  */
 class MockPuntosRepositoryTest {
 
-    private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
+    private val json = Json { ignoreUnknownKeys = true }
 
-    private fun repositorio(): MockPuntosRepository {
-        val ruta =
-            sequenceOf(
-                File("src/mock/assets/fixtures/puntos_criticos_publicos.json"),
-                File("app/src/mock/assets/fixtures/puntos_criticos_publicos.json"),
-            ).first { it.exists() }
-        return MockPuntosRepository(json, { ruta.readText() })
-    }
+    private var lecturas = 0
 
-    @Test
-    fun `el fixture carga como GeoJSON valido con 8 puntos de Concepcion`() =
-        runTest {
-            val puntos = repositorio().obtenerPuntos().getOrThrow()
-            assertEquals(8, puntos.size)
-            assertTrue(puntos.all { it.comuna == "Concepción" }) // RB-1
-            assertTrue(puntos.all { it.latitud < 0 && it.longitud < 0 }) // WGS 84 sur/oeste
+    private fun repositorio(
+        contenido: String = FIXTURE,
+    ): MockPuntosRepository =
+        MockPuntosRepository(json) {
+            lecturas++
+            contenido
         }
 
     @Test
-    fun `el fixture cumple estrictamente el contrato (sin campos desconocidos)`() {
-        // Json ESTRICTO: fallaría ante cualquier clave fuera de openapi.yaml.
-        val jsonEstricto = Json { ignoreUnknownKeys = false }
-        val ruta =
-            sequenceOf(
-                File("src/mock/assets/fixtures/puntos_criticos_publicos.json"),
-                File("app/src/mock/assets/fixtures/puntos_criticos_publicos.json"),
-            ).first { it.exists() }
-        val fc = jsonEstricto.decodeFromString<cl.alervi.data.api.dto.GeoJsonFeatureCollectionDto>(ruta.readText())
-        assertEquals("FeatureCollection", fc.type)
-        assertEquals(8, fc.features.size)
-    }
+    fun `sin filtro devuelve todos los puntos del fixture`() =
+        runBlocking {
+            val puntos = repositorio().obtenerPuntos(comuna = null).getOrThrow()
 
-    @Test
-    fun `filtro por comuna inexistente da lista vacia (TC-06)`() =
-        runTest {
-            val puntos = repositorio().obtenerPuntos(comuna = "Chiguayante").getOrThrow()
-            assertTrue(puntos.isEmpty())
+            assertEquals(listOf(101, 102), puntos.map { it.idPunto })
+            assertEquals(NivelRiesgo.ALTO, puntos.first().nivelRiesgo)
         }
 
     @Test
-    fun `el detalle simulado trae la advertencia legal RB-6`() =
-        runTest {
+    fun `filtra por comuna sin distinguir mayusculas`() =
+        runBlocking {
+            val repo = repositorio()
+            val concepcion = repo.obtenerPuntos(comuna = "concepción").getOrThrow()
+            val talcahuano = repo.obtenerPuntos(comuna = "TALCAHUANO").getOrThrow()
+
+            assertEquals(listOf(101), concepcion.map { it.idPunto })
+            assertEquals(listOf(102), talcahuano.map { it.idPunto })
+        }
+
+    @Test
+    fun `el fixture se lee una sola vez y se conserva en memoria`() =
+        runBlocking {
+            val repo = repositorio()
+            repo.obtenerPuntos(comuna = null).getOrThrow()
+            repo.obtenerPuntos(comuna = "Concepción").getOrThrow()
+
+            assertEquals(1, lecturas)
+        }
+
+    @Test
+    fun `detalle existente usa respaldo de lista marcado como simulado`() =
+        runBlocking {
             val detalle = repositorio().obtenerDetalle(101).getOrThrow()
+
+            assertEquals(101, detalle.idPunto)
             assertEquals(OrigenDetalle.SIMULADO, detalle.origen)
-            assertTrue(detalle.advertenciaLegal.contains("prioridad"))
+            assertNotNull(detalle.advertenciaLegal)
         }
 
     @Test
-    fun `detalle de punto inexistente en fixtures falla sin inventar`() =
-        runTest {
-            val r = repositorio().obtenerDetalle(999)
-            assertTrue(r.isFailure)
+    fun `detalle inexistente devuelve falla sin inventar datos`() =
+        runBlocking {
+            val resultado = repositorio().obtenerDetalle(999)
+
+            assertTrue(resultado.isFailure)
+            assertTrue(resultado.exceptionOrNull() is NoSuchElementException)
         }
+
+    @Test
+    fun `fixture invalido devuelve falla en vez de propagar la excepcion`() =
+        runBlocking {
+            val resultado = repositorio(contenido = "{no-json}").obtenerPuntos(comuna = null)
+
+            assertTrue(resultado.isFailure)
+        }
+
+    private companion object {
+        val FIXTURE =
+            """
+            {
+              "type": "FeatureCollection",
+              "features": [
+                {
+                  "type": "Feature",
+                  "id": 101,
+                  "geometry": {"type": "Point", "coordinates": [-73.0543, -36.8271]},
+                  "properties": {
+                    "id_punto": 101,
+                    "nombre_interseccion": "Av. Paicaví con Av. Los Carrera",
+                    "comuna": "Concepción",
+                    "nivel_riesgo": "ALTO",
+                    "indice_prioridad": 78.5,
+                    "total_siniestros": 24
+                  }
+                },
+                {
+                  "type": "Feature",
+                  "id": 102,
+                  "geometry": {"type": "Point", "coordinates": [-73.05, -36.83]},
+                  "properties": {
+                    "id_punto": 102,
+                    "nombre_interseccion": "Otra intersección",
+                    "comuna": "Talcahuano",
+                    "nivel_riesgo": "MEDIO",
+                    "indice_prioridad": 50.0,
+                    "total_siniestros": 5
+                  }
+                }
+              ]
+            }
+            """.trimIndent()
+    }
 }

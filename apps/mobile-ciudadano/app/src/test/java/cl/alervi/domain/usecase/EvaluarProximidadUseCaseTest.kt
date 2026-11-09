@@ -136,6 +136,21 @@ class EvaluarProximidadUseCaseTest {
     }
 
     @Test
+    fun `TC-23 punto lateral no alerta aunque su proyeccion longitudinal sea corta`() {
+        // Punto a 100 m al este y 400 m al norte, rumbo ESTE: producto escalar
+        // positivo, pero distancia real 412 m → TTC ≈ 29,7 s > 12 s. La
+        // proyección longitudinal sola habría dado 7,2 s y un falso positivo.
+        val r =
+            useCase.evaluar(
+                telemetria(),
+                listOf(punto(1, lonEsteDe(100.0), latNorteDe(400.0))),
+                emptySet(),
+                ahora,
+            )
+        assertEquals(MotivoSupresion.SUPRIMIDO_TTC_MAYOR_12S, (r as EvaluacionAlerta.Suprimida).motivo)
+    }
+
+    @Test
     fun `TTC exactamente 12 s si alerta (limite inclusive)`() {
         // 12 s × 13,889 m/s ≈ 166,7 m al este.
         val r = useCase.evaluar(telemetria(), listOf(punto(1, lonEsteDe(166.0), latBase)), emptySet(), ahora)

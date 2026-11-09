@@ -10,7 +10,9 @@ import cl.alervi.data.api.dto.PuntoCriticoPropertiesDto
 import cl.alervi.data.api.dto.PuntoCriticoPublicDetailDto
 import cl.alervi.domain.model.EvaluacionAlerta
 import cl.alervi.domain.model.MotivoSupresion
+import cl.alervi.domain.model.NivelRiesgo
 import cl.alervi.domain.model.OrigenDetalle
+import cl.alervi.domain.model.PatronSonoro
 import cl.alervi.domain.model.Telemetria
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -188,5 +190,60 @@ class MapeadoresTest {
         val dto = AlertCheckResponseDto(alertaActiva = false, telemetriaStatus = "SUPRIMIDO_TTC_MAYOR_12S")
         val r = Mapeadores.aEvaluacion(dto) as EvaluacionAlerta.Suprimida
         assertEquals(MotivoSupresion.SUPRIMIDO_TTC_MAYOR_12S, r.motivo)
+    }
+
+    @Test
+    fun `detalle con nivel fuera del contrato se descarta sin inventar datos`() {
+        val dto =
+            PuntoCriticoPublicDetailDto(
+                idPunto = 101,
+                nombreInterseccion = "Av. Paicaví con Av. Los Carrera",
+                comuna = "Concepción",
+                latitud = -36.8271,
+                longitud = -73.0543,
+                nivelRiesgo = "EXTREMO",
+                indicePrioridad = 78.5,
+                totalSiniestros = 24,
+                advertenciaLegal = "Índice relativo (RB-6).",
+            )
+
+        assertNull(Mapeadores.aDetalle(dto))
+    }
+
+    @Test
+    fun `respuesta activa sin alerta o con estado desconocido se suprime`() {
+        val sinAlerta =
+            AlertCheckResponseDto(
+                alertaActiva = true,
+                telemetriaStatus = "ESTADO_FUERA_DE_CONTRATO",
+                alerta = null,
+            )
+
+        val r = Mapeadores.aEvaluacion(sinAlerta) as EvaluacionAlerta.Suprimida
+        assertEquals(MotivoSupresion.SIN_PUNTOS_EN_RANGO, r.motivo)
+    }
+
+    @Test
+    fun `alerta con enums fuera del contrato usa fallbacks de representacion`() {
+        val dto =
+            AlertCheckResponseDto(
+                alertaActiva = true,
+                telemetriaStatus = "EVALUADO_CON_ALERTA",
+                alerta =
+                    AlertDetailDto(
+                        idPunto = 101,
+                        nombreInterseccion = "Av. Paicaví con Av. Los Carrera",
+                        nivelRiesgo = "EXTREMO",
+                        distanciaM = 112.5,
+                        ttcSegundos = 8.1,
+                        mensajeVisual = "Zona de riesgo",
+                        patronSonoro = "RUIDO",
+                        instruccionSeguridad = "Reduzca la velocidad",
+                    ),
+            )
+
+        val alerta = (Mapeadores.aEvaluacion(dto) as EvaluacionAlerta.ConAlerta).alerta
+        assertEquals(NivelRiesgo.MEDIO, alerta.nivelRiesgo)
+        assertEquals(PatronSonoro.TONO_CORTO, alerta.patronSonoro)
     }
 }
