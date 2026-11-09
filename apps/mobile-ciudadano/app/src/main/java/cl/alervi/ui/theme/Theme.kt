@@ -1,37 +1,62 @@
 package cl.alervi.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 
 /**
- * Tema Material 3 de ALERVI. Soporta modo claro/oscuro del sistema.
- * El escalado de texto respeta los ajustes del sistema (§4.4 accesibilidad,
- * texto ampliado); no se fijan tamaños en dp para tipografía.
+ * Tema Material 3 de ALERVI.
+ *
+ * La app se presenta SIEMPRE en oscuro con la
+ * paleta de los mockups; no se inventan equivalentes claros. El parámetro
+ * [contenidoOscuro] se conserva por compatibilidad de firma, pero el esquema
+ * aplicado es el oscuro en todos los casos.
+ *
+ * La tipografía se define en `sp` y sin alturas fijas: el escalado de texto
+ * del sistema se respeta (E1 §4.4, TalkBack y texto ampliado).
  */
-private val EsquemaClaro =
-    lightColorScheme(
-        primary = Primario,
-        secondary = Secundario,
-        background = Fondo,
-        surface = Superficie,
-    )
-
 private val EsquemaOscuro =
     darkColorScheme(
-        primary = PrimarioOscuro,
-        secondary = Secundario,
+        primary = TealAcento,
+        onPrimary = TextoPrincipal,
+        primaryContainer = TealAcento,
+        onPrimaryContainer = TextoPrincipal,
+        secondary = TealClaro,
+        onSecondary = FondoAlervi,
+        secondaryContainer = TealAcento,
+        onSecondaryContainer = TextoPrincipal,
+        tertiary = TealActivo,
+        onTertiary = FondoAlervi,
+        tertiaryContainer = SuperficieAlervi,
+        onTertiaryContainer = TealClaro,
+        background = FondoAlervi,
+        onBackground = TextoPrincipal,
+        surface = FondoAlervi,
+        onSurface = TextoPrincipal,
+        surfaceVariant = SuperficieAlervi,
+        onSurfaceVariant = TextoPrincipalSuave,
+        surfaceDim = FondoAlervi,
+        surfaceBright = SuperficieAlervi,
+        surfaceContainerLowest = FondoAlervi,
+        surfaceContainerLow = SuperficieAlervi,
+        surfaceContainer = SuperficieAlervi,
+        surfaceContainerHigh = SuperficieAlervi,
+        surfaceContainerHighest = SuperficieAlervi,
+        outline = BordeAlervi,
+        outlineVariant = BordeAlervi,
+        error = RiesgoCritico,
+        onError = TextoPrincipal,
+        errorContainer = SuperficieAlervi,
+        onErrorContainer = RiesgoCritico,
     )
 
 @Composable
 fun AlerviTheme(
-    contenidoOscuro: Boolean = isSystemInDarkTheme(),
+    contenidoOscuro: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     MaterialTheme(
-        colorScheme = if (contenidoOscuro) EsquemaOscuro else EsquemaClaro,
+        colorScheme = EsquemaOscuro,
         typography = TipografiaAlervi,
         content = content,
     )

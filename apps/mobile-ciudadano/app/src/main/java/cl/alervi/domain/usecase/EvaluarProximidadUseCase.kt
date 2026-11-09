@@ -110,8 +110,11 @@ class EvaluarProximidadUseCase
                 val distancia = hypot(relX, relY)
                 if (productoEscalar <= telemetria.velocidadMps * EPSILON_AVANCE_M) continue
                 enDireccionDeAcercamiento++
-                // TTC = avance sobre la trayectoria / rapidez = (dot/|v|)/|v|.
-                val ttc = productoEscalar / (telemetria.velocidadMps * telemetria.velocidadMps)
+                // TTC = tiempo de arribo al punto a la velocidad instantánea.
+                // Se usa la distancia real (no solo la proyección sobre el rumbo):
+                // un punto lateral a 400 m no se alcanza en 12 s aunque su
+                // proyección longitudinal sea corta (RB-13, TC-23).
+                val ttc = distancia / telemetria.velocidadMps
                 if (ttc > AlertCheckConstants.MAX_TTC_S) continue
                 convergentes += Elegible(punto, distancia, ttc)
             }

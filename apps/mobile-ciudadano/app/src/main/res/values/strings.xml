@@ -1,11 +1,64 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- RNF-U-3 (E1 §4.4): 100 % de los textos propios en español. -->
+<!--
+  RNF-U-3 (E1 §4.4): 100 % de los textos de interfaz en español, en recursos.
+
+  Copy de: presentación (01), consentimiento (02, el texto íntegro y los avisos
+  legales viven en cadenas_legales.xml) y configuración (06). El copy de mapa,
+  detalle y alerta (03–05) está en cadenas_mapa.xml. Separar los archivos
+  evita colisiones entre líneas de trabajo.
+-->
 <resources>
     <string name="app_name" translatable="false">ALERVI</string>
 
-    <!-- Pantalla de andamiaje. -->
-    <string name="pantalla_andamiaje_mensaje">Aplicación ciudadana de alertas viales para Concepción. Pantalla base de construcción.</string>
-    <string name="pantalla_andamiaje_descripcion">Pantalla inicial de ALERVI en construcción</string>
-    <string name="entorno_mock">Entorno de demostración: funciona sin conexión ni backend.</string>
-    <string name="entorno_local">Entorno local: consulta al backend en 10.0.2.2:8000.</string>
+    <!-- ================= Comunes y accesibilidad (E1 §4.4) ================= -->
+    <string name="accion_volver">Atrás</string>
+    <string name="barra_inferior_descripcion">Barra de navegación principal</string>
+    <string name="barra_pestana_mapa">Mapa</string>
+    <string name="barra_pestana_ajustes">Ajustes</string>
+
+    <!-- ================= 01 Bienvenida ================= -->
+    <string name="bienvenida_logo_descripcion">Logo de ALERVI</string>
+    <string name="bienvenida_propuesta_titulo">Alertas viales preventivas</string>
+    <string name="bienvenida_propuesta_cuerpo">Consulta puntos críticos y recibe avisos de proximidad durante tus recorridos por Concepción.</string>
+    <string name="bienvenida_recuadro">Una herramienta para conducir con mayor atención.</string>
+    <string name="bienvenida_comenzar">Comenzar</string>
+    <string name="bienvenida_privacidad">Política de privacidad</string>
+    <!-- Pie visible SOLO en flavor mock (BuildConfig.MODO_SIN_RED). -->
+    <string name="bienvenida_pie_prototipo">Prototipo demostrativo</string>
+
+    <!-- ================= 02 Consentimiento ================= -->
+    <!-- Encabezado, título, ítems, texto íntegro y enlace a la política:
+         cadenas_legales.xml (no modificar sin control de cambios). -->
+    <string name="consentimiento_seccion_texto">Texto completo del consentimiento</string>
+    <string name="consentimiento_activar">Activar alertas</string>
+    <string name="consentimiento_ahora_no">Ahora no</string>
+
+    <!-- ================= 06 Configuración ================= -->
+    <string name="configuracion_cabecera">Configuración</string>
+    <string name="configuracion_seccion_estado">Estado del sistema</string>
+    <string name="configuracion_ubicacion_concedida">Ubicación habilitada</string>
+    <string name="configuracion_piloto">Piloto: comuna de Concepción</string>
+    <!-- RB-14: la sesión solo puede afirmarse como activa si lo está. -->
+    <string name="configuracion_sesion_activa">Sesión de alertas activa</string>
+    <string name="configuracion_sesion_inactiva">Sesión de alertas inactiva</string>
+    <string name="configuracion_ubicacion_no_solicitada">Ubicación no solicitada</string>
+    <string name="configuracion_ubicacion_no_solicitada_detalle">Hace falta activar las alertas de proximidad para que ALERVI pueda avisarte.</string>
+    <string name="configuracion_ubicacion_denegada">Permiso de ubicación denegado</string>
+    <!-- TC-27: informar la limitación sin prometer monitoreo. -->
+    <string name="configuracion_ubicacion_denegada_detalle">Sin permiso no se pueden emitir alertas.</string>
+    <string name="configuracion_seccion_preferencias">Preferencias de alertas</string>
+    <string name="configuracion_alertas_titulo">Alertas de proximidad</string>
+    <string name="configuracion_alertas_detalle">Avisos visuales y sonoros al acercarte a un punto crítico.</string>
+    <string name="configuracion_consentimiento_formato">Consentimiento aceptado el %1$s</string>
+    <string name="configuracion_privacidad">Política de privacidad</string>
+    <string name="configuracion_seccion_sobre">Sobre ALERVI</string>
+
+    <!-- ============ Evaluación en marcha (RD-04, RF-8) ============ -->
+    <!-- Notificación persistente del ForegroundService (pantalla bloqueada). -->
+    <string name="servicio_titulo">ALERVI · Monitoreo activo</string>
+    <string name="servicio_detalle">Evaluando proximidad a puntos críticos</string>
+    <string name="servicio_canal_monitoreo">Monitoreo de alertas</string>
+    <string name="servicio_canal_monitoreo_descripcion">Notificación persistente mientras las alertas de proximidad están activas.</string>
+    <string name="servicio_canal_alertas">Alertas de proximidad</string>
+    <string name="servicio_canal_alertas_descripcion">Avisos visuales al acercarse a un punto crítico.</string>
 </resources>

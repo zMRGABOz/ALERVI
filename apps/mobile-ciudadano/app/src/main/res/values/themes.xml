@@ -1,11 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--
-      Tema base. Sin ActionBar: la UI es 100 % Jetpack Compose (ALT-1, E1 §8.1)
-      y las alertas no exigen interacción (RD-04).
+      Tema base. Sin ActionBar: la UI es 100 %
+      Jetpack Compose (ALT-1, E1 §8.1) y las alertas no exigen interacción
+      (RD-04). La app se presenta siempre en oscuro, así que el fondo de
+      ventana y las barras del sistema usan el mismo tono de la UI Compose
+      (#101216): sin destello blanco al arrancar ni barras de otro color.
     -->
-    <style name="Theme.Alervi" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:statusBarColor">@color/alervi_primario</item>
-        <item name="android:windowBackground">@android:color/white</item>
+    <style name="Theme.Alervi" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/alervi_fondo</item>
+        <item name="android:statusBarColor">@color/alervi_fondo</item>
+        <item name="android:navigationBarColor">@color/alervi_fondo</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
 </resources>

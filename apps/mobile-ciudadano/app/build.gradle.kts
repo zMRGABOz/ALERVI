@@ -124,6 +124,10 @@ dependencies {
     // públicos R-8; jamás coordenadas del ciudadano: RNF-S-8)
     implementation(libs.androidx.datastore.preferences)
 
+    // Ubicación en segundo plano de la sesión de alertas (RF-8, RB-13):
+    // FusedLocationProviderClient dentro de un ForegroundService (RD-04).
+    implementation(libs.play.services.location)
+
     // Mapa (D-1: MapLibre + CARTO Positron; prohibidos Google Maps/Mapbox)
     implementation(libs.maplibre.android)
 

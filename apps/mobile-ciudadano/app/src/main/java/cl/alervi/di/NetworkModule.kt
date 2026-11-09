@@ -2,6 +2,7 @@ package cl.alervi.di
 
 import android.content.Context
 import cl.alervi.data.local.CachePuntosPublicos
+import cl.alervi.data.local.RegistroConsentimiento
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -40,4 +41,14 @@ object NetworkModule {
         json: Json,
         @ApplicationContext context: Context,
     ): CachePuntosPublicos = CachePuntosPublicos(json, context.filesDir)
+
+    /**
+     * Registro LOCAL del consentimiento Ley 21.719 (§5.3, R-5) sobre
+     * DataStore; singleton porque el delegate de DataStore debe ser único
+     * por archivo. NO contiene coordenadas (RNF-S-8).
+     */
+    @Provides
+    @Singleton
+    fun proveerRegistroConsentimiento(@ApplicationContext context: Context): RegistroConsentimiento =
+        RegistroConsentimiento.desdeContexto(context)
 }
