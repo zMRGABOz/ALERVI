@@ -1,0 +1,158 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": 101,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-73.0543, -36.8271]
+      },
+      "properties": {
+        "id_punto": 101,
+        "nombre_interseccion": "Av. Paicaví con Av. Los Carrera",
+        "comuna": "Concepción",
+        "nivel_riesgo": "ALTO",
+        "indice_prioridad": 78.5,
+        "total_siniestros": 24,
+        "total_fallecidos": 2,
+        "total_graves": 7,
+        "tendencia": "ALZA",
+        "resumen_publico": "Intersección con alto flujo peatonal y virajes conflictivos frecuentes."
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 102,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-73.0609, -36.8301]
+      },
+      "properties": {
+        "id_punto": 102,
+        "nombre_interseccion": "Av. Collao con Av. Chacabuco",
+        "comuna": "Concepción",
+        "nivel_riesgo": "CRITICO",
+        "indice_prioridad": 92.3,
+        "total_siniestros": 31,
+        "total_fallecidos": 4,
+        "total_graves": 9,
+        "tendencia": "ALZA",
+        "resumen_publico": "Cruce de alto flujo con colisiones laterales reiteradas."
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 103,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-73.0498, -36.8269]
+      },
+      "properties": {
+        "id_punto": 103,
+        "nombre_interseccion": "Av. Tucapel con Aníbal Pinto",
+        "comuna": "Concepción",
+        "nivel_riesgo": "MEDIO",
+        "indice_prioridad": 54.2,
+        "total_siniestros": 12,
+        "total_fallecidos": 0,
+        "total_graves": 3,
+        "tendencia": "ESTABLE"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 104,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-73.0459, -36.8287]
+      },
+      "properties": {
+        "id_punto": 104,
+        "nombre_interseccion": "Barros Arana con Caupolicán",
+        "comuna": "Concepción",
+        "nivel_riesgo": "BAJO",
+        "indice_prioridad": 21.8,
+        "total_siniestros": 5,
+        "total_fallecidos": 0,
+        "total_graves": 1,
+        "tendencia": "BAJA"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 105,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-73.0721, -36.8349]
+      },
+      "properties": {
+        "id_punto": 105,
+        "nombre_interseccion": "Av. Alonso de Ribera con General Novoa",
+        "comuna": "Concepción",
+        "nivel_riesgo": "ALTO",
+        "indice_prioridad": 74.9,
+        "total_siniestros": 19,
+        "total_fallecidos": 1,
+        "total_graves": 6,
+        "tendencia": "ALZA",
+        "resumen_publico": "Acceso a establecimientos educacionales con cruce peatonal conflictivo."
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 106,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-73.0665, -36.8438]
+      },
+      "properties": {
+        "id_punto": 106,
+        "nombre_interseccion": "Mittermayr con José María Caro",
+        "comuna": "Concepción",
+        "nivel_riesgo": "MEDIO",
+        "indice_prioridad": 47.6,
+        "total_siniestros": 10,
+        "total_graves": 2,
+        "tendencia": "ESTABLE"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 107,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-73.0739, -36.8205]
+      },
+      "properties": {
+        "id_punto": 107,
+        "nombre_interseccion": "Av. Arturo Prat con Angol",
+        "comuna": "Concepción",
+        "nivel_riesgo": "ALTO",
+        "indice_prioridad": 69.4,
+        "total_siniestros": 16,
+        "total_fallecidos": 1,
+        "total_graves": 5,
+        "tendencia": "ESTABLE"
+      }
+    },
+    {
+      "type": "Feature",
+      "id": 108,
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-73.0401, -36.8358]
+      },
+      "properties": {
+        "id_punto": 108,
+        "nombre_interseccion": "Av. Colo Colo con Castellón",
+        "comuna": "Concepción",
+        "nivel_riesgo": "MEDIO",
+        "indice_prioridad": 51.0,
+        "total_siniestros": 11,
+        "total_graves": 2,
+        "tendencia": "ALZA"
+      }
+    }
+  ]
+}

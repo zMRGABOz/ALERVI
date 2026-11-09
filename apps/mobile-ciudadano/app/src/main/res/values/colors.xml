@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="alervi_fondo_icono">#0F4C5C</color>
+    <!-- Fondo oscuro de la UI: evita el destello claro al arrancar
+         y mantiene coherentes las barras del sistema con la app. -->
+    <color name="alervi_fondo">#101216</color>
+</resources>

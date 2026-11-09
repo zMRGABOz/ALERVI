@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copy de mapa (03), detalle (04) y alerta (05).
+
+  Textos legales y avisos obligatorios (RB-6, ausencia de alerta, no
+  manipular, atribución OSM/CARTO): cadenas_legales.xml.
+  La ausencia de puntos o el fallo de carga NUNCA se presentan como
+  ausencia de riesgo (RB-2, TC-06/TC-07).
+-->
+<resources>
+    <!-- ================= 03 Mapa ================= -->
+    <string name="mapa_cabecera">ALERVI · Concepción</string>
+    <!-- Descripción accesible del mapa (E1 §4.4): propósito + cantidad. -->
+    <string name="mapa_descripcion_base">Mapa de puntos críticos de siniestralidad vial en la comuna de Concepción.</string>
+    <plurals name="mapa_descripcion_puntos">
+        <item quantity="one">Muestra %1$d punto.</item>
+        <item quantity="other">Muestra %1$d puntos.</item>
+    </plurals>
+    <string name="mapa_descripcion_sin_puntos">Mapa de puntos críticos de siniestralidad vial en la comuna de Concepción. Sin puntos visibles.</string>
+    <string name="mapa_cargando">Cargando puntos críticos</string>
+    <!-- TC-06: sin resultados; no se afirma que la comuna carezca de riesgo. -->
+    <string name="mapa_sin_puntos_titulo">Sin puntos disponibles</string>
+    <string name="mapa_sin_puntos_detalle">No se recibieron puntos críticos para mostrar. Esto no significa que la comuna esté libre de riesgo.</string>
+    <!-- TC-07: fallo de consulta con reintento. -->
+    <string name="mapa_error_titulo">No se pudieron cargar los puntos</string>
+    <string name="mapa_error_ayuda">Revisa tu conexión e inténtalo de nuevo.</string>
+    <!-- RB-14: estado de la sesión de alertas. -->
+    <string name="mapa_monitoreo_activo">Monitoreo activo</string>
+    <string name="mapa_monitoreo_activo_detalle">Alertas de proximidad habilitadas</string>
+    <string name="mapa_monitoreo_inactivo">Monitoreo inactivo</string>
+    <string name="mapa_monitoreo_inactivo_detalle">Activa las alertas en Configuración</string>
+    <!-- TC-27: consentimiento sin permiso no habilita el monitoreo. -->
+    <string name="mapa_monitoreo_sin_permiso">Ubicación no habilitada</string>
+    <string name="mapa_monitoreo_sin_permiso_detalle">Concede el permiso de ubicación para recibir avisos</string>
+    <string name="mapa_leyenda_titulo">Niveles de riesgo</string>
+    <string name="reintentar">Reintentar</string>
+
+    <!-- ================= 04 Detalle ================= -->
+    <string name="detalle_cabecera">Punto crítico vial</string>
+    <string name="chip_riesgo_formato">Riesgo %1$s</string>
+    <string name="detalle_indice_titulo">Índice de prioridad</string>
+    <string name="detalle_indice_sobre_cien" translatable="false">/ 100</string>
+    <!-- RB-2: procedencia y período de los antecedentes. -->
+    <string name="detalle_seccion_antecedentes">Antecedentes históricos</string>
+    <string name="detalle_rotulo_siniestros">Siniestros totales</string>
+    <string name="detalle_rotulo_fallecidos">Fallecidos</string>
+    <string name="detalle_rotulo_graves">Lesionados graves</string>
+    <string name="detalle_rotulo_tendencia">Tendencia</string>
+    <string name="detalle_rotulo_periodo">Período de los datos</string>
+    <!-- Dato incompleto: nunca se interpreta como ausencia de siniestros. -->
+    <string name="detalle_dato_no_disponible">No disponible</string>
+    <string name="detalle_periodo_no_disponible">Período no disponible</string>
+    <string name="tendencia_al_alza">Al alza</string>
+    <string name="tendencia_estable">Estable</string>
+    <string name="tendencia_a_la_baja">A la baja</string>
+    <string name="detalle_seccion_explicacion">Sobre este punto</string>
+    <!-- Regla de integración incompleta: procedencia informada al usuario. -->
+    <string name="detalle_aviso_respaldo">Detalle construido con los datos disponibles del listado; el detalle ampliado no está disponible.</string>
+    <string name="detalle_cargando">Cargando el detalle del punto</string>
+    <string name="detalle_error_titulo">No se pudo cargar el detalle</string>
+    <string name="detalle_error_ayuda">Revisa tu conexión e inténtalo de nuevo.</string>
+
+    <!-- ================= 05 Alerta ================= -->
+    <string name="alerta_rotulo">PRECAUCIÓN</string>
+    <string name="alerta_signo" translatable="false">!</string>
+    <string name="alerta_instruccion_predeterminada">Aumenta tu atención y respeta las normas de tránsito.</string>
+    <string name="alerta_volver_al_mapa">Volver al mapa</string>
+</resources>
