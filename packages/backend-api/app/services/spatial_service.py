@@ -627,7 +627,24 @@ def evaluar_alerta_proximidad(
         return _fallback_alerta()
 
     try:
-        user_pt = ST_SetSRID(ST_MakePoint(payload.longitud, payload.latitud), 4326)
+        lat = getattr(payload, "latitude", getattr(payload, "latitud", -36.8271))
+        lon = getattr(payload, "longitude", getattr(payload, "longitud", -73.0543))
+
+        vel_mps = getattr(payload, "speed_mps", None)
+        if vel_mps is not None:
+            vel_kmh = vel_mps * 3.6
+        else:
+            vel_kmh = getattr(payload, "velocidad_kmh", 0.0) or 0.0
+            vel_mps = vel_kmh * (1000.0 / 3600.0)
+
+        if vel_kmh < 5.0:
+            return AlertCheckResponse(
+                alerta_activa=False,
+                telemetria_status="SUPRIMIDA_VELOCIDAD",
+                alerta=None,
+            )
+
+        user_pt = ST_SetSRID(ST_MakePoint(lon, lat), 4326)
         user_geog = cast(user_pt, Geography)
         punto_geog = cast(PuntoCritico.geometry, Geography)
 
@@ -657,12 +674,7 @@ def evaluar_alerta_proximidad(
             )
 
         dist_m = round(float(cercano.distancia_m), 1)
-        vel_kmh = payload.velocidad_kmh if payload.velocidad_kmh is not None else 0.0
-
-        ttc_seg = None
-        if vel_kmh >= 5.0:
-            vel_ms = vel_kmh * (1000.0 / 3600.0)
-            ttc_seg = round(dist_m / vel_ms, 1)
+        ttc_seg = round(dist_m / vel_mps, 1) if vel_mps > 0 else None
 
         es_critico = cercano.fallecidos > 0 or cercano.total_siniestros >= 50
         nivel = "CRITICO" if es_critico else "ALTO"

@@ -417,6 +417,8 @@ def calibrar_ponderaciones(
         + payload.w_tendencia
         + payload.w_contexto
     )
+    if round(suma, 4) != 1.0:
+        raise ValueError("La suma de ponderaciones debe ser exactamente 1.0 (RB-5).")
     _PONDERACIONES_VIGENTES["w_severidad"] = payload.w_severidad
     _PONDERACIONES_VIGENTES["w_frecuencia"] = payload.w_frecuencia
     _PONDERACIONES_VIGENTES["w_tendencia"] = payload.w_tendencia
