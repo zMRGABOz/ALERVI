@@ -502,4 +502,3 @@ async def get_eventos_auditoria(
     return crud_service.listar_eventos_auditoria(
         db, accion=accion, id_usuario=id_usuario, limit=limit or 50, offset=offset or 0
     )
-

@@ -17,6 +17,7 @@ except ImportError:
     class OperationalError(Exception):  # type: ignore
         pass
 
+
 from app.models.db_models import (
     EventoAuditoria,
     FactorRiesgo,
@@ -70,7 +71,11 @@ def authenticate_user(db: Session, payload: LoginRequest) -> LoginResponse:
 
     if db is not None:
         try:
-            user = db.query(Usuario).filter(Usuario.correo == correo_req, Usuario.activo.is_(True)).first()
+            user = (
+                db.query(Usuario)
+                .filter(Usuario.correo == correo_req, Usuario.activo.is_(True))
+                .first()
+            )
             if user:
                 return LoginResponse(
                     access_token=f"jwt.{user.id_usuario}.alervi.valid.token",
@@ -113,8 +118,20 @@ def listar_usuarios(
 ) -> UsuarioListResponse:
     """Lista las cuentas de usuarios en el sistema municipal."""
     fallback_users = [
-        UsuarioResponse(id_usuario=1, correo="admin@alervi.test", rol="administrador", activo=True, fecha_creacion=None),
-        UsuarioResponse(id_usuario=2, correo="inspector@alervi.test", rol="inspector", activo=True, fecha_creacion=None),
+        UsuarioResponse(
+            id_usuario=1,
+            correo="admin@alervi.test",
+            rol="administrador",
+            activo=True,
+            fecha_creacion=None,
+        ),
+        UsuarioResponse(
+            id_usuario=2,
+            correo="inspector@alervi.test",
+            rol="inspector",
+            activo=True,
+            fecha_creacion=None,
+        ),
     ]
 
     if db is not None:
@@ -204,7 +221,9 @@ def obtener_usuario_por_id(db: Session, id_usuario: int) -> Optional[UsuarioResp
     )
 
 
-def actualizar_usuario(db: Session, id_usuario: int, payload: UsuarioUpdateRequest) -> Optional[UsuarioResponse]:
+def actualizar_usuario(
+    db: Session, id_usuario: int, payload: UsuarioUpdateRequest
+) -> Optional[UsuarioResponse]:
     """Modifica el rol o estado activo de un usuario."""
     if db is not None:
         try:
@@ -238,14 +257,41 @@ def actualizar_usuario(db: Session, id_usuario: int, payload: UsuarioUpdateReque
 # ==============================================================================
 # FACTORES DE RIESGO Y PONDERACIONES
 # ==============================================================================
-def listar_factores_riesgo(db: Session, solo_activos: bool = True) -> List[FactorRiesgoDto]:
+def listar_factores_riesgo(
+    db: Session, solo_activos: bool = True
+) -> List[FactorRiesgoDto]:
     """Retorna el catálogo oficial de factores de riesgo vial."""
     fallback_factores = [
-        FactorRiesgoDto(id_factor=1, nombre="Poca visibilidad", descripcion="Obstáculos visuales", activo=True),
-        FactorRiesgoDto(id_factor=2, nombre="Falta de señalización", descripcion="Señalización deficiente", activo=True),
-        FactorRiesgoDto(id_factor=3, nombre="Exceso de velocidad", descripcion="Velocidad sobre el límite", activo=True),
-        FactorRiesgoDto(id_factor=4, nombre="Cruce peatonal inseguro", descripcion="Sin protección peatonal", activo=True),
-        FactorRiesgoDto(id_factor=5, nombre="Iluminación deficiente", descripcion="Mala iluminación nocturna", activo=True),
+        FactorRiesgoDto(
+            id_factor=1,
+            nombre="Poca visibilidad",
+            descripcion="Obstáculos visuales",
+            activo=True,
+        ),
+        FactorRiesgoDto(
+            id_factor=2,
+            nombre="Falta de señalización",
+            descripcion="Señalización deficiente",
+            activo=True,
+        ),
+        FactorRiesgoDto(
+            id_factor=3,
+            nombre="Exceso de velocidad",
+            descripcion="Velocidad sobre el límite",
+            activo=True,
+        ),
+        FactorRiesgoDto(
+            id_factor=4,
+            nombre="Cruce peatonal inseguro",
+            descripcion="Sin protección peatonal",
+            activo=True,
+        ),
+        FactorRiesgoDto(
+            id_factor=5,
+            nombre="Iluminación deficiente",
+            descripcion="Mala iluminación nocturna",
+            activo=True,
+        ),
     ]
 
     if db is not None:
@@ -270,7 +316,9 @@ def listar_factores_riesgo(db: Session, solo_activos: bool = True) -> List[Facto
     return fallback_factores
 
 
-def crear_factor_riesgo(db: Session, payload: FactorRiesgoCreateRequest) -> FactorRiesgoDto:
+def crear_factor_riesgo(
+    db: Session, payload: FactorRiesgoCreateRequest
+) -> FactorRiesgoDto:
     """Registra un nuevo factor de riesgo en el catálogo municipal."""
     if db is not None:
         try:
@@ -299,11 +347,17 @@ def crear_factor_riesgo(db: Session, payload: FactorRiesgoCreateRequest) -> Fact
     )
 
 
-def actualizar_factor_riesgo(db: Session, id_factor: int, payload: FactorRiesgoUpdateRequest) -> Optional[FactorRiesgoDto]:
+def actualizar_factor_riesgo(
+    db: Session, id_factor: int, payload: FactorRiesgoUpdateRequest
+) -> Optional[FactorRiesgoDto]:
     """Modifica o desactiva un factor de riesgo existente."""
     if db is not None:
         try:
-            f = db.query(FactorRiesgo).filter(FactorRiesgo.id_factor == id_factor).first()
+            f = (
+                db.query(FactorRiesgo)
+                .filter(FactorRiesgo.id_factor == id_factor)
+                .first()
+            )
             if f:
                 if payload.nombre is not None:
                     f.nombre = payload.nombre.strip()
@@ -325,7 +379,8 @@ def actualizar_factor_riesgo(db: Session, id_factor: int, payload: FactorRiesgoU
     return FactorRiesgoDto(
         id_factor=id_factor,
         nombre=payload.nombre or "Poca visibilidad",
-        descripcion=payload.descripcion or "Obstáculos o geometría que limitan la visión.",
+        descripcion=payload.descripcion
+        or "Obstáculos o geometría que limitan la visión.",
         activo=payload.activo if payload.activo is not None else True,
     )
 
@@ -352,16 +407,27 @@ def obtener_ponderaciones() -> PonderacionesScoringDto:
     )
 
 
-def calibrar_ponderaciones(payload: PonderacionesUpdateRequest) -> PonderacionesScoringDto:
+def calibrar_ponderaciones(
+    payload: PonderacionesUpdateRequest,
+) -> PonderacionesScoringDto:
     """Actualiza y versiona la configuración de ponderaciones multicriterio."""
-    suma = payload.w_severidad + payload.w_frecuencia + payload.w_tendencia + payload.w_contexto
+    suma = (
+        payload.w_severidad
+        + payload.w_frecuencia
+        + payload.w_tendencia
+        + payload.w_contexto
+    )
     _PONDERACIONES_VIGENTES["w_severidad"] = payload.w_severidad
     _PONDERACIONES_VIGENTES["w_frecuencia"] = payload.w_frecuencia
     _PONDERACIONES_VIGENTES["w_tendencia"] = payload.w_tendencia
     _PONDERACIONES_VIGENTES["w_contexto"] = payload.w_contexto
     _PONDERACIONES_VIGENTES["version"] = "v1.1-calibrada-2026"
-    _PONDERACIONES_VIGENTES["fecha_calibracion"] = datetime.now(timezone.utc).isoformat()
-    _PONDERACIONES_VIGENTES["descripcion_cambio"] = payload.descripcion_cambio or "Calibración actualizada."
+    _PONDERACIONES_VIGENTES["fecha_calibracion"] = datetime.now(
+        timezone.utc
+    ).isoformat()
+    _PONDERACIONES_VIGENTES["descripcion_cambio"] = (
+        payload.descripcion_cambio or "Calibración actualizada."
+    )
 
     return PonderacionesScoringDto(
         version=_PONDERACIONES_VIGENTES["version"],
@@ -380,22 +446,36 @@ def calibrar_ponderaciones(payload: PonderacionesUpdateRequest) -> Ponderaciones
 # ==============================================================================
 # FICHAS DE INSPECCIÓN TÉCNICA
 # ==============================================================================
-def crear_ficha_inspeccion(db: Session, payload: FichaInspeccionCreateRequest) -> FichaInspeccionResponse:
+def crear_ficha_inspeccion(
+    db: Session, payload: FichaInspeccionCreateRequest
+) -> FichaInspeccionResponse:
     """Crea una nueva ficha de inspección asociada a un punto crítico."""
     if db is not None:
         try:
-            inspector = db.query(Usuario).filter(Usuario.rol == "inspector", Usuario.activo.is_(True)).first()
+            inspector = (
+                db.query(Usuario)
+                .filter(Usuario.rol == "inspector", Usuario.activo.is_(True))
+                .first()
+            )
             id_inspector = inspector.id_usuario if inspector else 2
-            correo_inspector = inspector.correo if inspector else "inspector@alervi.test"
+            correo_inspector = (
+                inspector.correo if inspector else "inspector@alervi.test"
+            )
 
             ficha = FichaInspeccion(
                 id_punto=payload.id_punto,
                 id_usuario=id_inspector,
-                fecha_visita=date.fromisoformat(payload.fecha_visita) if payload.fecha_visita else date.today(),
+                fecha_visita=date.fromisoformat(payload.fecha_visita)
+                if payload.fecha_visita
+                else date.today(),
                 notas=payload.notas or "Visita a terreno realizada.",
             )
             if payload.factores_riesgo_ids:
-                factores = db.query(FactorRiesgo).filter(FactorRiesgo.id_factor.in_(payload.factores_riesgo_ids)).all()
+                factores = (
+                    db.query(FactorRiesgo)
+                    .filter(FactorRiesgo.id_factor.in_(payload.factores_riesgo_ids))
+                    .all()
+                )
                 ficha.factores_riesgo = factores
 
             db.add(ficha)
@@ -412,7 +492,12 @@ def crear_ficha_inspeccion(db: Session, payload: FichaInspeccionCreateRequest) -
                 fecha_registro=datetime.now(timezone.utc).isoformat(),
                 notas=ficha.notas or "",
                 factores_riesgo=[
-                    FactorRiesgoDto(id_factor=f.id_factor, nombre=f.nombre, descripcion=f.descripcion, activo=f.activo)
+                    FactorRiesgoDto(
+                        id_factor=f.id_factor,
+                        nombre=f.nombre,
+                        descripcion=f.descripcion,
+                        activo=f.activo,
+                    )
                     for f in ficha.factores_riesgo
                 ],
                 fotografias=[],
@@ -429,28 +514,48 @@ def crear_ficha_inspeccion(db: Session, payload: FichaInspeccionCreateRequest) -
         fecha_visita=payload.fecha_visita,
         fecha_registro=None,
         notas=payload.notas or "Visita a terreno realizada según protocolo.",
-        factores_riesgo=[FactorRiesgoDto(id_factor=1, nombre="Poca visibilidad", descripcion="Visibilidad reducida", activo=True)],
+        factores_riesgo=[
+            FactorRiesgoDto(
+                id_factor=1,
+                nombre="Poca visibilidad",
+                descripcion="Visibilidad reducida",
+                activo=True,
+            )
+        ],
         fotografias=[],
     )
 
 
-def obtener_ficha_por_id(db: Session, id_ficha: int) -> Optional[FichaInspeccionResponse]:
+def obtener_ficha_por_id(
+    db: Session, id_ficha: int
+) -> Optional[FichaInspeccionResponse]:
     """Obtiene los detalles completos de una ficha técnica."""
     if db is not None:
         try:
-            f = db.query(FichaInspeccion).filter(FichaInspeccion.id_ficha == id_ficha).first()
+            f = (
+                db.query(FichaInspeccion)
+                .filter(FichaInspeccion.id_ficha == id_ficha)
+                .first()
+            )
             if f:
                 return FichaInspeccionResponse(
                     id_ficha=f.id_ficha,
                     id_punto=f.id_punto,
                     nombre_interseccion=f"Intersección #{f.id_punto} (Concepción)",
                     id_inspector=f.id_usuario,
-                    correo_inspector=f.usuario.correo if f.usuario else "inspector@alervi.test",
+                    correo_inspector=f.usuario.correo
+                    if f.usuario
+                    else "inspector@alervi.test",
                     fecha_visita=str(f.fecha_visita),
                     fecha_registro=None,
                     notas=f.notas or "",
                     factores_riesgo=[
-                        FactorRiesgoDto(id_factor=fa.id_factor, nombre=fa.nombre, descripcion=fa.descripcion, activo=fa.activo)
+                        FactorRiesgoDto(
+                            id_factor=fa.id_factor,
+                            nombre=fa.nombre,
+                            descripcion=fa.descripcion,
+                            activo=fa.activo,
+                        )
                         for fa in f.factores_riesgo
                     ],
                     fotografias=[
@@ -477,7 +582,14 @@ def obtener_ficha_por_id(db: Session, id_ficha: int) -> Optional[FichaInspeccion
         fecha_visita="2026-11-02",
         fecha_registro=None,
         notas="Inspección realizada con equipo municipal.",
-        factores_riesgo=[FactorRiesgoDto(id_factor=1, nombre="Poca visibilidad", descripcion="Visibilidad reducida", activo=True)],
+        factores_riesgo=[
+            FactorRiesgoDto(
+                id_factor=1,
+                nombre="Poca visibilidad",
+                descripcion="Visibilidad reducida",
+                activo=True,
+            )
+        ],
         fotografias=[
             FotografiaResponse(
                 id_foto=28,
@@ -497,14 +609,22 @@ def actualizar_ficha_inspeccion(
     """Actualiza observaciones y factores de una ficha propia."""
     if db is not None:
         try:
-            f = db.query(FichaInspeccion).filter(FichaInspeccion.id_ficha == id_ficha).first()
+            f = (
+                db.query(FichaInspeccion)
+                .filter(FichaInspeccion.id_ficha == id_ficha)
+                .first()
+            )
             if f:
                 if payload.notas is not None:
                     f.notas = payload.notas
                 if payload.fecha_visita is not None:
                     f.fecha_visita = date.fromisoformat(payload.fecha_visita)
                 if payload.factores_riesgo_ids is not None:
-                    factores = db.query(FactorRiesgo).filter(FactorRiesgo.id_factor.in_(payload.factores_riesgo_ids)).all()
+                    factores = (
+                        db.query(FactorRiesgo)
+                        .filter(FactorRiesgo.id_factor.in_(payload.factores_riesgo_ids))
+                        .all()
+                    )
                     f.factores_riesgo = factores
                 db.commit()
                 db.refresh(f)
@@ -521,7 +641,14 @@ def actualizar_ficha_inspeccion(
         fecha_visita=payload.fecha_visita or "2026-11-02",
         fecha_registro=None,
         notas=payload.notas or "Notas de inspección actualizadas.",
-        factores_riesgo=[FactorRiesgoDto(id_factor=1, nombre="Poca visibilidad", descripcion="Visibilidad reducida", activo=True)],
+        factores_riesgo=[
+            FactorRiesgoDto(
+                id_factor=1,
+                nombre="Poca visibilidad",
+                descripcion="Visibilidad reducida",
+                activo=True,
+            )
+        ],
         fotografias=[],
     )
 
@@ -581,7 +708,14 @@ def listar_fichas_de_punto(db: Session, id_punto: int) -> List[FichaInspeccionRe
             fecha_visita="2026-11-02",
             fecha_registro=None,
             notas="Visita de terreno reciente.",
-            factores_riesgo=[FactorRiesgoDto(id_factor=1, nombre="Poca visibilidad", descripcion="Visibilidad reducida", activo=True)],
+            factores_riesgo=[
+                FactorRiesgoDto(
+                    id_factor=1,
+                    nombre="Poca visibilidad",
+                    descripcion="Visibilidad reducida",
+                    activo=True,
+                )
+            ],
             fotografias=[],
         )
     ]
@@ -623,7 +757,12 @@ def listar_eventos_auditoria(
                 q = q.filter(EventoAuditoria.id_usuario == id_usuario)
 
             total = q.count()
-            eventos = q.order_by(desc(EventoAuditoria.fecha_hora)).offset(offset).limit(limit).all()
+            eventos = (
+                q.order_by(desc(EventoAuditoria.fecha_hora))
+                .offset(offset)
+                .limit(limit)
+                .all()
+            )
             if eventos:
                 return AuditoriaListResponse(
                     total=total,
@@ -631,11 +770,15 @@ def listar_eventos_auditoria(
                         EventoAuditoriaResponse(
                             id_evento=e.id_evento,
                             id_usuario=e.id_usuario,
-                            correo_usuario=e.usuario.correo if e.usuario else "sistema@alervi.test",
+                            correo_usuario=e.usuario.correo
+                            if e.usuario
+                            else "sistema@alervi.test",
                             accion=e.accion,
                             entidad_afectada=e.entidad_afectada,
                             id_afectado=str(e.id_afectado) if e.id_afectado else None,
-                            fecha_hora=e.fecha_hora.isoformat() if e.fecha_hora else datetime.now(timezone.utc).isoformat(),
+                            fecha_hora=e.fecha_hora.isoformat()
+                            if e.fecha_hora
+                            else datetime.now(timezone.utc).isoformat(),
                             detalles=f"Acción {e.accion} registrada en {e.entidad_afectada or 'sistema'}.",
                         )
                         for e in eventos
@@ -650,7 +793,9 @@ def listar_eventos_auditoria(
 # ==============================================================================
 # INGESTA Y CARGAS VIALES
 # ==============================================================================
-def procesar_carga_vial(db: Session, payload: CargaDatosBatchRequest) -> CargaDatosResponse:
+def procesar_carga_vial(
+    db: Session, payload: CargaDatosBatchRequest
+) -> CargaDatosResponse:
     """Procesa e ingesta un lote de siniestros viales."""
     total = len(payload.registros) if payload.registros else 1633
     aceptados = max(0, total - 5)

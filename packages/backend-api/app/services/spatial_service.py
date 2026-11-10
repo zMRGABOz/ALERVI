@@ -33,6 +33,7 @@ except ImportError:
     class OperationalError(Exception):  # type: ignore
         pass
 
+
 from app.models.db_models import (
     Comuna,
     ElementoUrbano,
@@ -63,7 +64,13 @@ def _normalizar_comuna_filtro(comuna: Optional[str]) -> str:
     if not comuna:
         return "Concepc"
     c = comuna.strip().lower()
-    c = c.replace("á", "a").replace("é", "e").replace("í", "i").replace("ó", "o").replace("ú", "u")
+    c = (
+        c.replace("á", "a")
+        .replace("é", "e")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("ú", "u")
+    )
     if "concepc" in c:
         return "Concepc"
     return comuna.strip()
@@ -88,10 +95,14 @@ def _calcular_scoring(
 
     frecuencia_f = round(min(100.0, total_siniestros * 1.5), 1)
     tendencia_t = 65.0 if fallecidos > 0 else 45.0
-    contexto_c = round(min(100.0, colegios_count * 20.0 + paraderos_count * 10.0 + 30.0), 1)
+    contexto_c = round(
+        min(100.0, colegios_count * 20.0 + paraderos_count * 10.0 + 30.0), 1
+    )
 
     w_s, w_f, w_t, w_c = 0.35, 0.25, 0.20, 0.20
-    ip = round(w_s * severidad_s + w_f * frecuencia_f + w_t * tendencia_t + w_c * contexto_c, 1)
+    ip = round(
+        w_s * severidad_s + w_f * frecuencia_f + w_t * tendencia_t + w_c * contexto_c, 1
+    )
 
     if ip >= 70.0:
         nivel = "CRITICO"
@@ -149,10 +160,16 @@ def obtener_capa_riesgo_publico(
                 ST_X(PuntoCritico.geometry).label("lon"),
                 ST_Y(PuntoCritico.geometry).label("lat"),
                 Comuna.nombre.label("comuna_nombre"),
-                func.coalesce(func.sum(Registro.cantidad_siniestros), 0).label("total_siniestros"),
-                func.coalesce(func.sum(Registro.fallecidos), 0).label("total_fallecidos"),
+                func.coalesce(func.sum(Registro.cantidad_siniestros), 0).label(
+                    "total_siniestros"
+                ),
+                func.coalesce(func.sum(Registro.fallecidos), 0).label(
+                    "total_fallecidos"
+                ),
                 func.coalesce(func.sum(Registro.graves), 0).label("total_graves"),
-                func.coalesce(func.sum(Registro.menos_graves), 0).label("total_menos_graves"),
+                func.coalesce(func.sum(Registro.menos_graves), 0).label(
+                    "total_menos_graves"
+                ),
                 func.coalesce(func.sum(Registro.leves), 0).label("total_leves"),
             )
             .join(Comuna, ST_Contains(Comuna.geometry, PuntoCritico.geometry))
@@ -185,7 +202,11 @@ def obtener_capa_riesgo_publico(
                 leves=int(row.total_leves),
             )
 
-            nombre_comuna_disp = "Concepción" if "concepc" in row.comuna_nombre.lower() else row.comuna_nombre
+            nombre_comuna_disp = (
+                "Concepción"
+                if "concepc" in row.comuna_nombre.lower()
+                else row.comuna_nombre
+            )
             nombre_punto = f"Punto Crítico #{row.id_punto} ({nombre_comuna_disp})"
 
             features.append(
@@ -194,7 +215,10 @@ def obtener_capa_riesgo_publico(
                     id=row.id_punto,
                     geometry=GeoJsonPoint(
                         type="Point",
-                        coordinates=[round(float(row.lon), 6), round(float(row.lat), 6)],
+                        coordinates=[
+                            round(float(row.lon), 6),
+                            round(float(row.lat), 6),
+                        ],
                     ),
                     properties=PuntoCriticoProperties(
                         id_punto=row.id_punto,
@@ -216,7 +240,9 @@ def obtener_capa_riesgo_publico(
         return _fallback_capa_riesgo(comuna)
 
 
-def _fallback_ranking(comuna: str, periodo_inicio: int, periodo_fin: int) -> RankingResponse:
+def _fallback_ranking(
+    comuna: str, periodo_inicio: int, periodo_fin: int
+) -> RankingResponse:
     return RankingResponse(
         total_puntos=1,
         configuracion_version="v1.0-oficial-2026",
@@ -280,10 +306,16 @@ def obtener_ranking(
                 ST_X(PuntoCritico.geometry).label("lon"),
                 ST_Y(PuntoCritico.geometry).label("lat"),
                 Comuna.nombre.label("comuna_nombre"),
-                func.coalesce(func.sum(Registro.cantidad_siniestros), 0).label("total_siniestros"),
-                func.coalesce(func.sum(Registro.fallecidos), 0).label("total_fallecidos"),
+                func.coalesce(func.sum(Registro.cantidad_siniestros), 0).label(
+                    "total_siniestros"
+                ),
+                func.coalesce(func.sum(Registro.fallecidos), 0).label(
+                    "total_fallecidos"
+                ),
                 func.coalesce(func.sum(Registro.graves), 0).label("total_graves"),
-                func.coalesce(func.sum(Registro.menos_graves), 0).label("total_menos_graves"),
+                func.coalesce(func.sum(Registro.menos_graves), 0).label(
+                    "total_menos_graves"
+                ),
                 func.coalesce(func.sum(Registro.leves), 0).label("total_leves"),
             )
             .join(Comuna, ST_Contains(Comuna.geometry, PuntoCritico.geometry))
@@ -314,7 +346,11 @@ def obtener_ranking(
                 leves=int(row.total_leves),
             )
 
-            nombre_comuna_disp = "Concepción" if "concepc" in row.comuna_nombre.lower() else row.comuna_nombre
+            nombre_comuna_disp = (
+                "Concepción"
+                if "concepc" in row.comuna_nombre.lower()
+                else row.comuna_nombre
+            )
             items.append(
                 PuntoRankingItem(
                     id_punto=row.id_punto,
@@ -408,7 +444,9 @@ def _fallback_detalle(id_punto: int) -> PuntoCriticoTecnicoDetail:
     )
 
 
-def obtener_detalle_punto(db: Session, id_punto: int) -> Optional[PuntoCriticoTecnicoDetail]:
+def obtener_detalle_punto(
+    db: Session, id_punto: int
+) -> Optional[PuntoCriticoTecnicoDetail]:
     """Obtiene el detalle analítico completo de un punto crítico con entorno urbano."""
     if db is None:
         return _fallback_detalle(id_punto)
@@ -516,7 +554,11 @@ def obtener_detalle_punto(db: Session, id_punto: int) -> Optional[PuntoCriticoTe
         if punto_row.comuna_nombre and "concepc" in punto_row.comuna_nombre.lower():
             nombre_comuna_disp = "Concepción"
 
-        ref_urbana = paradero_top.nombre if paradero_top else (colegio_top.nombre if colegio_top else f"Sector #{id_punto}")
+        ref_urbana = (
+            paradero_top.nombre
+            if paradero_top
+            else (colegio_top.nombre if colegio_top else f"Sector #{id_punto}")
+        )
         nombre_interseccion = f"Punto #{id_punto} ({ref_urbana})"
 
         return PuntoCriticoTecnicoDetail(
@@ -577,7 +619,9 @@ def _fallback_alerta() -> AlertCheckResponse:
     )
 
 
-def evaluar_alerta_proximidad(db: Session, payload: AlertCheckRequest) -> AlertCheckResponse:
+def evaluar_alerta_proximidad(
+    db: Session, payload: AlertCheckRequest
+) -> AlertCheckResponse:
     """Evalúa la posición instantánea del vehículo con PostGIS para emitir alerta sonora/visual (RF-8)."""
     if db is None:
         return _fallback_alerta()
@@ -594,7 +638,9 @@ def evaluar_alerta_proximidad(db: Session, payload: AlertCheckRequest) -> AlertC
                 ST_X(PuntoCritico.geometry).label("lon"),
                 ST_Y(PuntoCritico.geometry).label("lat"),
                 func.coalesce(func.sum(Registro.fallecidos), 0).label("fallecidos"),
-                func.coalesce(func.sum(Registro.cantidad_siniestros), 0).label("total_siniestros"),
+                func.coalesce(func.sum(Registro.cantidad_siniestros), 0).label(
+                    "total_siniestros"
+                ),
             )
             .outerjoin(Registro, Registro.id_punto == PuntoCritico.id_punto)
             .filter(ST_DWithin(punto_geog, user_geog, 200.0))
