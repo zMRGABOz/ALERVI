@@ -20,25 +20,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 22
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version-file: 'apps/web-municipal/.nvmrc'
           cache: 'npm'
-          cache-dependency-path: |
-            apps/web-municipal/package-lock.json
-            apps/web-municipal/package.json
+          cache-dependency-path: 'apps/web-municipal/package-lock.json'
 
       - name: Install dependencies
-        run: |
-          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+        run: npm ci
 
       - name: Run Linter (ESLint) - RNF-M-2
         run: npm run lint
 
-      - name: Run Tests (Jest) - RNF-M-1
-      # Hay que retirar el || echo "No tests configured yet" cuando se agreguen pruebas unitarias
-        run: npm test -- --watchAll=false || echo "No tests configured yet"
+      - name: Check TypeScript types
+        run: npm run typecheck
 
       - name: Build Next.js - RNF-P-4
         run: npm run build
