@@ -15,7 +15,6 @@ function MapView({ points, selectedId, selectionRevision, reset }: Pick<RiskMapP
 
   useEffect(() => {
     if (!points.length) return;
-    map.closePopup();
     map.fitBounds(latLngBounds(points.map((point) => point.position)), {
       padding: [32, 32], maxZoom: 16, animate: false,
     });
@@ -27,6 +26,10 @@ function MapView({ points, selectedId, selectionRevision, reset }: Pick<RiskMapP
   }, [map, points, selectedId, selectionRevision]);
 
   useEffect(() => {
+    map.closePopup();
+  }, [map, reset]);
+
+  useEffect(() => {
     const observer = new ResizeObserver(() => map.invalidateSize({ pan: false }));
     observer.observe(map.getContainer());
     return () => observer.disconnect();
@@ -35,11 +38,12 @@ function MapView({ points, selectedId, selectionRevision, reset }: Pick<RiskMapP
   return null;
 }
 
-function PublicMarker({ point, selected, selectionRevision, onSelect }: {
+function PublicMarker({ point, selected, selectionRevision, onSelect, scopeLabel = "Capa pública general, sin filtro temporal." }: {
   point: PublicRiskPoint;
   selected: boolean;
   selectionRevision: number;
   onSelect: (id: number) => void;
+  scopeLabel?: string;
 }) {
   const marker = useRef<LeafletCircleMarker>(null);
   const color = riskLevels[point.nivel_riesgo].color;
@@ -47,7 +51,7 @@ function PublicMarker({ point, selected, selectionRevision, onSelect }: {
   useEffect(() => {
     if (selected) marker.current?.openPopup();
     else marker.current?.closePopup();
-  }, [selected, selectionRevision]);
+  }, [point, selected, selectionRevision]);
 
   return (
     <>
@@ -77,7 +81,7 @@ function PublicMarker({ point, selected, selectionRevision, onSelect }: {
             <div className="public-point-popup__priority"><RiskBadge level={point.nivel_riesgo} /> <span>IP {formatRiskIndex(point.indice_prioridad)}/100</span></div>
             <p>{point.total_siniestros} siniestros registrados · {point.comuna}</p>
             {point.resumen_publico && <p>{point.resumen_publico}</p>}
-            <p className="text-muted">Capa pública general, sin filtro temporal.</p>
+            <p className="text-muted">{scopeLabel}</p>
           </div>
         </Popup>
       </CircleMarker>
@@ -85,7 +89,14 @@ function PublicMarker({ point, selected, selectionRevision, onSelect }: {
   );
 }
 
-export default function RiskMapClient({ points, selectedId, selectionRevision = 0, onSelect }: RiskMapProps) {
+export default function RiskMapClient({ points, selectedId, selectionRevision = 0, onSelect, focusPoint, ariaLabel = "Mapa público de puntos críticos de Concepción" }: RiskMapProps) {
+  const displayedPoints = useMemo(() => {
+    if (!focusPoint) return points;
+    const includesFocus = points.some((point) => point.id_punto === focusPoint.point.id_punto);
+    return includesFocus
+      ? points.map((point) => point.id_punto === focusPoint.point.id_punto ? focusPoint.point : point)
+      : [...points, focusPoint.point];
+  }, [points, focusPoint]);
   const failedTiles = useRef(new Set<HTMLElement>());
   const [tilesLoading, setTilesLoading] = useState(publicMapConfig.tileUrl !== null);
   const [tileError, setTileError] = useState(false);
@@ -122,7 +133,7 @@ export default function RiskMapClient({ points, selectedId, selectionRevision = 
         <p>Selecciona un marcador o un punto de la lista.</p>
         <button type="button" className="button-secondary" onClick={() => setViewReset((value) => value + 1)}>Ver todos los puntos</button>
       </div>
-      <div role="region" aria-label="Mapa público de puntos críticos de Concepción" className="risk-map-viewport">
+      <div role="region" aria-label={ariaLabel} className="risk-map-viewport">
         <MapContainer
           center={publicMapConfig.center}
           zoom={publicMapConfig.zoom}
@@ -137,8 +148,17 @@ export default function RiskMapClient({ points, selectedId, selectionRevision = 
           {publicMapConfig.tileUrl && (
             <TileLayer key={tileAttempt} url={publicMapConfig.tileUrl} attribution={publicMapConfig.attribution} subdomains="abcd" maxZoom={20} eventHandlers={tileEvents} />
           )}
-          <MapView points={points} selectedId={selectedId} selectionRevision={selectionRevision} reset={viewReset} />
-          {points.map((point) => <PublicMarker key={point.id_punto} point={point} selected={point.id_punto === selectedId} selectionRevision={selectionRevision} onSelect={onSelect} />)}
+          <MapView points={displayedPoints} selectedId={selectedId} selectionRevision={selectionRevision} reset={viewReset} />
+          {displayedPoints.map((point) => (
+            <PublicMarker
+              key={point.id_punto}
+              point={point}
+              selected={point.id_punto === selectedId}
+              selectionRevision={selectionRevision}
+              onSelect={onSelect}
+              scopeLabel={point.id_punto === focusPoint?.point.id_punto ? focusPoint.scopeLabel : undefined}
+            />
+          ))}
         </MapContainer>
       </div>
       {!publicMapConfig.tileUrl ? (
