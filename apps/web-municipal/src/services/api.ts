@@ -1,4 +1,5 @@
 import { env } from "../config/env";
+import { DemoTokenError, transport } from "./transport";
 
 export type RequestOptions = {
   signal?: AbortSignal;
@@ -196,7 +197,7 @@ export async function apiRequest<TResponse>(
   }
 
   try {
-    const response = await fetch(url, {
+    const response = await transport(url, {
       method: options.method ?? "GET",
       headers,
       body,
@@ -232,6 +233,13 @@ export async function apiRequest<TResponse>(
     }
   } catch (error) {
     if (error instanceof ApiError) throw error;
+
+    if (error instanceof DemoTokenError) {
+      throw new ApiError(error.message, {
+        status: 401,
+        code: "TOKEN_DEMO_NO_PERMITIDO",
+      });
+    }
 
     if (abortReason) {
       throw new ApiError(
