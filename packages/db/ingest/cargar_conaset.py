@@ -19,7 +19,14 @@ ANIO_MIN, ANIO_MAX = 2020, 2025
 DECIMALES = 6
 
 # Pareo de columnas del GeoJSON a las columnas de la BD
-CAMPOS = {"Cantidad_d": "cantidad_siniestros", "Fallecidos": "fallecidos", "GRAVES": "graves", "MENOS_GRAV": "menos_graves", "LEVES": "leves"}
+CAMPOS = {
+    "Cantidad_d": "cantidad_siniestros",
+    "Fallecidos": "fallecidos",
+    "GRAVES": "graves",
+    "MENOS_GRAV": "menos_graves",
+    "LEVES": "leves",
+}
+
 
 def conectar():
     """
@@ -37,14 +44,15 @@ def conectar():
     # Si no existe se construye
     if not url:
         url = "postgresql://{u}:{p}@{h}:{port}/{d}".format(
-            u = os.getenv("POSTGRES_USER", "alervi_user"),
-            p = os.getenv("POSTGRES_PASSWORD", "alervi_dev_2026"),
-            h = os.getenv("POSTGRES_HOST", "localhost"),
-            port = os.getenv("POSTGRES_PORT", "5432"),
-            d = os.getenv("POSTGRES_DB", "alervi_db")
+            u=os.getenv("POSTGRES_USER", "alervi_user"),
+            p=os.getenv("POSTGRES_PASSWORD", "alervi_dev_2026"),
+            h=os.getenv("POSTGRES_HOST", "localhost"),
+            port=os.getenv("POSTGRES_PORT", "5432"),
+            d=os.getenv("POSTGRES_DB", "alervi_db"),
         )
 
     return psycopg2.connect(url)
+
 
 def get_entero(valor):
     """
@@ -55,6 +63,7 @@ def get_entero(valor):
     if isinstance(valor, float) and not valor.is_integer():
         return None
     return int(valor)
+
 
 def leer_fila(feature):
     """
@@ -67,7 +76,10 @@ def leer_fila(feature):
     if geometry.get("type") != "Point":
         raise ValueError("Geometria distinta de Point")
     lon, lat = geometry["coordinates"][:2]
-    if not all(isinstance(c, (int, float)) and not isinstance(c, bool) and math.isfinite(c) for c in (lon, lat)):
+    if not all(
+        isinstance(c, (int, float)) and not isinstance(c, bool) and math.isfinite(c)
+        for c in (lon, lat)
+    ):
         raise ValueError("Coordenadas invalidas")
 
     properties = feature.get("properties") or {}
@@ -89,11 +101,16 @@ def leer_fila(feature):
 
     return round(lon, DECIMALES), round(lat, DECIMALES), anio, conteos
 
+
 def main():
     # Configuracion inicial del argumentparses
-    ap = argparse.ArgumentParser(description="Carga de datos CONASET (Formato: GeoJSON)")
+    ap = argparse.ArgumentParser(
+        description="Carga de datos CONASET (Formato: GeoJSON)"
+    )
     ap.add_argument("archivo", help="ruta al GeoJSON")
-    ap.add_argument("--dry-run", action="store_true", help="valida y prueba sin guardar nada")
+    ap.add_argument(
+        "--dry-run", action="store_true", help="valida y prueba sin guardar nada"
+    )
     args = ap.parse_args()
 
     # Apertura del archivo y carga las features
@@ -119,7 +136,7 @@ def main():
         # Cada punto debe caer dentro de una comuna
         cursor.execute(
             "SELECT EXISTS (SELECT 1 FROM comuna WHERE ST_Within(ST_SetSRID(ST_MakePoint(%s, %s), 4326), geometry))",
-            (lon, lat)
+            (lon, lat),
         )
         if not cursor.fetchone()[0]:
             rechazos["fuera de comuna"] += 1
@@ -133,12 +150,10 @@ def main():
         else:
             fusionados[clave] = dict(conteos)
 
-    ids = {} # "Cache" de puntos
+    ids = {}  # "Cache" de puntos
     for (lon, lat, anio), conteos in fusionados.items():
-
         # Validacion de la existencia del punto en la cache
         if (lon, lat) not in ids:
-
             # Si el punto no estan en la cache se intenta insertar en la tabla PUNTO_CRITICO
             # Si el punto ya existia entonces se realiza una dummy update para que la query retorne el punto
             cursor.execute(
@@ -148,7 +163,7 @@ def main():
                 ON CONFLICT (geometry) DO UPDATE SET geometry = EXCLUDED.geometry
                 RETURNING id_punto
                 """,
-                (lon, lat)
+                (lon, lat),
             )
 
             # El punto en cuestion es ingresado a la cache de puntos
@@ -168,7 +183,7 @@ def main():
                 menos_graves        = EXCLUDED.menos_graves,
                 leves               = EXCLUDED.leves
             """,
-            {"id_punto": ids[((lon, lat))], "anio": anio, **conteos}
+            {"id_punto": ids[(lon, lat)], "anio": anio, **conteos},
         )
 
     if args.dry_run:
@@ -187,8 +202,12 @@ def main():
         print(f"    {motivo} : {n}")
     print(f"Puntos distintos: {len(ids)}")
     print(f"Registros (punto, anio): {len(fusionados)}")
-    print("MODO PRUEBA: No se guardó nada en la BD" if args.dry_run else "Guardado en la base de datos")
-    print("")
+    print(
+        "MODO PRUEBA: No se guardó nada en la BD"
+        if args.dry_run
+        else "Guardado en la base de datos"
+    )
+
 
 if __name__ == "__main__":
     sys.exit(main())

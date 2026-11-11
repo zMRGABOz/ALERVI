@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Manifest ALERVI ciudadano (RF-2 consulta pública sin cuenta, RF-8 alertas).
+
+  Privacidad (E1 §5.3, R-5):
+  - El mapa público NO solicita ACCESS_FINE_LOCATION: el permiso se declara aquí
+    pero solo se pide EN TIEMPO DE EJECUCIÓN tras el consentimiento informado
+    Ley 21.719 (pantalla previa + botón «Activar alertas»).
+  - allowBackup=false: no se permite respaldar datos locales del dispositivo (minimización §5.3).
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Se solicita en runtime SOLO tras consentimiento (E1 §5.3 L837–842, R-5). -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!--
+      Sesión de alertas en marcha (RF-8, RB-13, RD-04):
+      - ForegroundService de tipo location: la evaluación sigue con la pantalla
+        bloqueada (mínimo privilegio: NO se declara ACCESS_BACKGROUND_LOCATION).
+      - POST_NOTIFICATIONS: el aviso visual de la alerta y la notificación
+        persistente del monitoreo (Android 13+).
+      - WAKE_LOCK parcial: mantiene la evaluación activa con la pantalla
+        bloqueada; se libera al detener el servicio.
+    -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <application
+        android:name=".AlerviApp"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Alervi">
+
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          Evaluación de proximidad en marcha (RD-04):
+          servicio en primer plano de tipo location mientras la sesión de
+          alertas está activa; sigue evaluando con la pantalla bloqueada.
+          Las coordenadas NO se persisten ni se registran (RNF-S-8).
+        -->
+        <service
+            android:name=".location.ServicioAlertasProximidad"
+            android:exported="false"
+            android:foregroundServiceType="location"
+            android:stopWithTask="false" />
+    </application>
+
+</manifest>

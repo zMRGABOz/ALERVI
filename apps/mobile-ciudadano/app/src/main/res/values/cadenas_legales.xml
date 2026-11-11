@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Textos legales y avisos obligatorios de ALERVI.
+
+  Base normativa (E1 §5.3 L837-842, RNF-U-3, RB-2, RB-6, RD-04):
+  - Consentimiento libre, informado, específico y previo (Ley N.º 21.719).
+  - La posición no se almacena ni se escribe en registros (RNF-S-8).
+  - Retiro desactivando las alertas o revocando el permiso (§5.3).
+  - Función destinada a mayores de 14 años (art. 16 quáter, E1 §5.3).
+  - Avisos de interpretación relativa del índice (RB-6) y de ausencia de alerta.
+
+  Estos textos NO se modifican sin control de cambios: la versión registrada en el
+  dispositivo (RegistroConsentimiento.VERSION_TEXTO_ACTUAL) debe cambiar junto con ellos.
+-->
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ===================================================================== -->
+    <!-- Consentimiento informado (pantalla 02)                                -->
+    <!-- ===================================================================== -->
+    <string name="consentimiento_encabezado">Antes de comenzar</string>
+    <string name="consentimiento_titulo">Activa la ubicación</string>
+    <string name="consentimiento_intro">ALERVI utiliza tu posición para advertir cuando te acercas a puntos críticos viales.</string>
+
+    <string name="consentimiento_item_ubicacion_titulo">Ubicación</string>
+    <string name="consentimiento_item_ubicacion_detalle">Identifica puntos cercanos</string>
+    <string name="consentimiento_item_visuales_titulo">Avisos visuales</string>
+    <string name="consentimiento_item_visuales_detalle">Advertencias claras en pantalla</string>
+    <string name="consentimiento_item_sonoros_titulo">Avisos sonoros</string>
+    <string name="consentimiento_item_sonoros_detalle">Alertas sin mirar el teléfono</string>
+
+    <string name="consentimiento_texto_integro" tools:ignore="Typos">ALERVI utiliza la ubicación de tu dispositivo únicamente para calcular si te acercas a un punto crítico vial y avisarte mediante una advertencia visual y sonora.\n\nQué dato se usa: la posición del dispositivo (latitud y longitud), junto con la velocidad, el rumbo y la precisión del GPS mientras las alertas están activas.\n\nPara qué se usa: solo para calcular alertas de proximidad. No se usa para estadísticas, perfiles ni publicidad.\n\nQué no se hace: la posición no se guarda en el servidor ni en el teléfono, no se escribe en registros y no se asocia a tu identidad.\n\nCuándo se envía: solo mientras las alertas están activas. Viaja en el cuerpo de la petición, nunca en la dirección del sitio.\n\nCómo retirar el consentimiento: desactiva «Alertas de proximidad» en Configuración o revoca el permiso de ubicación en los ajustes de Android. Al desactivarlas, se borra el registro local de aceptación.\n\nEdad: esta función está destinada a personas mayores de 14 años. Si tienes menos edad, úsala con la autorización de tu padre, madre o representante legal.\n\nRegistro local: en el dispositivo se guarda solo la versión de este texto y la fecha de aceptación.\n\nBase legal: Ley N.º 21.719 sobre protección de datos personales.\n\nAl continuar, otorgas tu consentimiento libre, informado, específico y previo para el tratamiento descrito.</string>
+
+    <string name="consentimiento_ver_politica">Leer la política de privacidad completa</string>
+
+    <!-- ===================================================================== -->
+    <!-- Política de privacidad (pantalla accesible desde toda la app)          -->
+    <!-- ===================================================================== -->
+    <string name="privacidad_titulo">Política de privacidad</string>
+    <!-- «en el momento» es texto normativo, no una errata. -->
+    <string name="privacidad_texto" tools:ignore="Typos">ALERVI es una aplicación de información preventiva sobre puntos críticos de siniestralidad vial en la comuna de Concepción. Esta política describe qué datos trata la aplicación ciudadana y con qué finalidad.\n\nDatos que se tratan\nLa posición del dispositivo (latitud y longitud), la velocidad, el rumbo y la precisión del GPS se usan solo mientras las alertas de proximidad están activas. No se solicitan nombre, RUT, teléfono ni identificador del dispositivo.\n\nFinalidad\nCalcular en el momento si el vehículo se aproxima a un punto crítico y emitir un aviso visual y sonoro. La posición no se usa para estadísticas, perfiles, publicidad ni otra finalidad.\n\nAlmacenamiento\nLa posición se procesa en memoria y se descarta al responder la solicitud. No se guarda en el servidor, en la base de datos ni en los registros técnicos, y tampoco se conserva en el teléfono (RNF-S-8).\n\nConsentimiento y retiro\nEl consentimiento se otorga con la acción «Activar alertas», antes de solicitar el permiso de ubicación del sistema. Se puede retirar desactivando «Alertas de proximidad» en Configuración o revocando el permiso en los ajustes de Android. En el dispositivo se guarda solo la versión del texto aceptado y la fecha.\n\nMenores de edad\nLa función está destinada a personas mayores de 14 años. Si tienes menos edad, úsala con la autorización de tu padre, madre o representante legal.\n\nTerceros\nLas teselas del mapa base las entrega CARTO y los datos geográficos provienen de OpenStreetMap. El proveedor de teselas recibe la dirección IP del dispositivo y la zona visible del mapa; no recibe la posición enviada para calcular alertas. Datos de siniestralidad: CONASET.\n\nDerechos\nComo la posición no se almacena ni se asocia a tu identidad, no existen datos personales sobre los cuales ejercer acceso, rectificación, supresión o portabilidad. La oposición se ejerce desactivando las alertas o revocando el permiso.\n\nBase legal\nLey N.º 19.628 y Ley N.º 21.719 sobre protección de datos personales.</string>
+
+    <!-- ===================================================================== -->
+    <!-- Avisos obligatorios                                                    -->
+    <!-- ===================================================================== -->
+    <!-- RB-6 / RNF-U-5: el índice expresa prioridad relativa. -->
+    <string name="aviso_rb6">El índice de prioridad expresa una prioridad relativa dentro del conjunto analizado. No representa la probabilidad individual de sufrir un siniestro ni certifica que una vía sea segura.</string>
+
+    <!-- RNF-U-4 / E1 §7.1: la ausencia de aviso no garantiza seguridad. -->
+    <string name="aviso_ausencia_alerta">La ausencia de una alerta no garantiza que la vía sea segura.</string>
+
+    <!-- RD-04 / E1 §7.1: uso seguro, sin manipular el dispositivo. -->
+    <string name="aviso_no_manipular">No manipules el dispositivo mientras conduces. Activa las alertas antes de iniciar la marcha.</string>
+
+    <!-- REF-10 / REF-11: atribución obligatoria de datos y cartografía. -->
+    <string name="atribucion_osm_carto">© OpenStreetMap contributors · © CARTO</string>
+
+</resources>

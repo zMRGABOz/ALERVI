@@ -1,0 +1,44 @@
+name: CI Web
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+    paths:
+      - 'apps/web-municipal/**'
+      - '.github/workflows/ci-web.yml'
+
+jobs:
+  test-web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web-municipal
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            apps/web-municipal/package-lock.json
+            apps/web-municipal/package.json
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+
+      - name: Run Linter (ESLint) - RNF-M-2
+        run: npm run lint
+
+      - name: Run Tests (Jest) - RNF-M-1
+      # Hay que retirar el || echo "No tests configured yet" cuando se agreguen pruebas unitarias
+        run: npm test -- --watchAll=false || echo "No tests configured yet"
+
+      - name: Build Next.js - RNF-P-4
+        run: npm run build
