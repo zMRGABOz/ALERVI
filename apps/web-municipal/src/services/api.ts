@@ -1,5 +1,6 @@
 import { env } from "../config/env";
-import { DemoTokenError, transport } from "./transport";
+import type { Session } from "../types/session";
+import { TransportSessionError, transport } from "./transport";
 
 export type RequestOptions = {
   signal?: AbortSignal;
@@ -7,7 +8,7 @@ export type RequestOptions = {
 };
 
 export type AuthenticatedRequestOptions = RequestOptions & {
-  accessToken: string;
+  session: Session;
 };
 
 type QueryValue = string | number | boolean | null | undefined;
@@ -17,8 +18,8 @@ type ApiRequestOptions = RequestOptions & {
   query?: Readonly<Record<string, QueryValue>>;
   body?: unknown;
 } & (
-    | { auth?: "public"; accessToken?: never }
-    | { auth: "required"; accessToken: string }
+    | { auth?: "public"; session?: never }
+    | { auth: "required"; session: Session }
   );
 
 export type ApiValidationIssue = Readonly<{
@@ -137,17 +138,11 @@ export async function apiRequest<TResponse>(
     Accept: "application/json, application/geo+json",
   });
 
-  if (options.auth === "required") {
-    const token = options.accessToken.trim();
-
-    if (!token || /\s/.test(token)) {
-      throw new ApiError("Se requiere una sesión válida para continuar.", {
-        status: 401,
-        code: "SESION_REQUERIDA",
-      });
-    }
-
-    headers.set("Authorization", `Bearer ${token}`);
+  if (options.auth === "required" && !options.session) {
+    throw new ApiError("Se requiere una sesión válida para continuar.", {
+      status: 401,
+      code: "SESION_REQUERIDA",
+    });
   }
 
   let body: string | undefined;
@@ -190,10 +185,13 @@ export async function apiRequest<TResponse>(
     }
   }, timeoutMs);
 
-  if (options.signal?.aborted) {
-    cancel();
-  } else {
-    options.signal?.addEventListener("abort", cancel, { once: true });
+  const signals = [options.signal, options.session?.signal];
+  for (const signal of signals) {
+    if (signal?.aborted) {
+      cancel();
+    } else {
+      signal?.addEventListener("abort", cancel, { once: true });
+    }
   }
 
   try {
@@ -204,7 +202,8 @@ export async function apiRequest<TResponse>(
       signal: controller.signal,
       cache: "no-store",
       credentials: "omit",
-    });
+    }, options.session);
+    controller.signal.throwIfAborted();
 
     if (!response.ok) {
       let errorBody: unknown;
@@ -220,6 +219,7 @@ export async function apiRequest<TResponse>(
 
     try {
       const data: TResponse = await response.json();
+      controller.signal.throwIfAborted();
       return data;
     } catch (error) {
       if (error instanceof SyntaxError) {
@@ -234,10 +234,10 @@ export async function apiRequest<TResponse>(
   } catch (error) {
     if (error instanceof ApiError) throw error;
 
-    if (error instanceof DemoTokenError) {
+    if (error instanceof TransportSessionError) {
       throw new ApiError(error.message, {
         status: 401,
-        code: "TOKEN_DEMO_NO_PERMITIDO",
+        code: error.code,
       });
     }
 
@@ -260,6 +260,6 @@ export async function apiRequest<TResponse>(
     });
   } finally {
     clearTimeout(timer);
-    options.signal?.removeEventListener("abort", cancel);
+    for (const signal of signals) signal?.removeEventListener("abort", cancel);
   }
 }

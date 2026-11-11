@@ -8,6 +8,8 @@ export type IconName =
   | "inspection"
   | "history"
   | "user"
+  | "logout"
+  | "settings"
   | "calendar"
   | "map"
   | "layers"
@@ -24,6 +26,8 @@ const paths: Record<IconName, string> = {
   inspection: "M9 4H6a2 2 0 0 0-2 2v14h16V6a2 2 0 0 0-2-2h-3M9 2h6v4H9Zm3 8v7m-3-3h6",
   history: "M3 11a9 9 0 1 1 2 7M3 4v7h7m2-4v5l3 2",
   user: "M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0ZM4 21v-2a8 8 0 0 1 16 0v2",
+  logout: "M9 4H4v16h5m0-8h12m-4-4 4 4-4 4",
+  settings: "M4 6h16M4 12h16M4 18h16M8 3v6m8 0v6m-6 0v6",
   calendar: "M5 4h14a2 2 0 0 1 2 2v14H3V6a2 2 0 0 1 2-2ZM7 2v4m10-4v4M3 10h18M7 14h2m6 0h2m-10 3h2",
   map: "m3 5 6-2 6 2 6-2v16l-6 2-6-2-6 2Zm6-2v16m6-14v16",
   layers: "m12 3 10 5-10 5L2 8Zm-10 9 10 5 10-5M2 16l10 5 10-5",

@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
-import { municipalNavigation, navigationDialogId } from "../../config/navigation";
+import { getMunicipalNavigation, navigationDialogId } from "../../config/navigation";
+import { useSession } from "../../hooks/useSession";
 import { Icon } from "../UI/Icon";
 
 function NavigationContent({
@@ -14,10 +15,11 @@ function NavigationContent({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
+  const { rol } = useSession();
 
   return (
     <nav aria-label="Navegación municipal">
-      {municipalNavigation.map((group) => (
+      {getMunicipalNavigation(rol).map((group) => (
         <div key={group.id} className="navigation-group">
           <p id={`${idPrefix}-${group.id}`} className="navigation-group__label">{group.label}</p>
           <ul aria-labelledby={`${idPrefix}-${group.id}`} className="space-y-1">

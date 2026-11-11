@@ -1,7 +1,11 @@
+"use client";
+
 import Link from "next/link";
 import type { Ref } from "react";
 import { navigationDialogId } from "../../config/navigation";
 import { routes } from "../../config/routes";
+import { useSession } from "../../hooks/useSession";
+import { sessionRoleLabels } from "../../types/session";
 import { Icon } from "../UI/Icon";
 
 type MunicipalHeaderProps = {
@@ -15,6 +19,9 @@ export function MunicipalHeader({
   menuButtonRef,
   onOpenMenu,
 }: MunicipalHeaderProps) {
+  const { session, status, logout } = useSession();
+  const sessionLabel = session?.source === "demo" ? "Sesión local" : "Sesión real";
+
   return (
     <header className="municipal-header">
       <div className="flex min-w-0 items-center gap-3">
@@ -38,9 +45,32 @@ export function MunicipalHeader({
           </span>
         </Link>
       </div>
-      <div className="session-status" aria-label="Estado de sesión: sin iniciar">
-        <Icon name="user" size={18} />
-        <span className="hidden sm:inline">Sesión sin iniciar</span>
+      <div className="session-controls">
+        <div className="session-status" aria-label={session
+          ? `${sessionRoleLabels[session.rol]} · ${sessionLabel}`
+          : status === "initializing" ? "Inicializando sesión" : "Sin sesión municipal"}
+        >
+          <Icon name="user" size={18} />
+          <span>
+            {session ? (
+              <>
+                <span className="session-status__role">{sessionRoleLabels[session.rol]}</span>
+                <span className="session-status__source">{sessionLabel}</span>
+              </>
+            ) : status === "initializing" ? "Preparando…" : "Sin sesión"}
+          </span>
+        </div>
+        {session && (
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={`Cerrar ${sessionLabel.toLowerCase()}`}
+            title={`Cerrar ${sessionLabel.toLowerCase()}`}
+            onClick={logout}
+          >
+            <Icon name="logout" />
+          </button>
+        )}
       </div>
     </header>
   );

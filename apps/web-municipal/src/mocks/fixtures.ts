@@ -28,29 +28,21 @@ export const DEMO_DATA = Object.freeze({
   version: "demo-v1",
 });
 
-// Credenciales públicas y ficticias; no corresponden a cuentas de un servidor.
-export const DEMO_CREDENTIALS = Object.freeze({
-  inspector: "inspector@demo.alervi.test",
-  administrator: "administrador@demo.alervi.test",
-  blocked: "bloqueado@demo.alervi.test",
-  password: "DemoALERVI2026!",
-  mfaCode: "123456",
-});
-
+// Identidades sintéticas para revisión local; no tienen credenciales ni token.
 export const demoUsers: Record<
   "inspector" | "administrador",
   Schema["UsuarioResponse"]
 > = {
   inspector: {
     id_usuario: 9001,
-    correo: DEMO_CREDENTIALS.inspector,
+    correo: "inspector@demo.alervi.test",
     rol: "inspector",
     activo: true,
     fecha_creacion: "2026-10-01T09:00:00.000Z",
   },
   administrador: {
     id_usuario: 9002,
-    correo: DEMO_CREDENTIALS.administrator,
+    correo: "administrador@demo.alervi.test",
     rol: "administrador",
     activo: true,
     fecha_creacion: "2026-10-01T09:00:00.000Z",
@@ -65,7 +57,7 @@ export const demoWeights: Schema["PonderacionesScoringDto"] = {
   w_contexto: 0.15,
   suma_pesos: 1,
   fecha_calibracion: DEMO_DATA.calculatedAt,
-  modificado_por: DEMO_CREDENTIALS.administrator,
+  modificado_por: demoUsers.administrador.correo,
   descripcion_cambio: "Configuración sintética. Solo existe en memoria.",
   es_vigente: true,
 };

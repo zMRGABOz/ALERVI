@@ -13,7 +13,7 @@ export function getPointDetail(
     `/api/v1/puntos/${encodeURIComponent(String(idPunto))}`,
     {
       auth: "required",
-      accessToken: options.accessToken,
+      session: options.session,
       signal: options.signal,
       timeoutMs: options.timeoutMs,
     },

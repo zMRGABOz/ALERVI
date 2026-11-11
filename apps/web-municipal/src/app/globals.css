@@ -167,16 +167,56 @@ body {
   font-size: 0.75rem;
 }
 
+.session-controls,
 .session-status {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.session-status {
   padding: 8px 12px;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   color: var(--color-text-muted);
   background: var(--color-surface-muted);
   font-size: 0.8125rem;
+}
+
+.session-status__role {
+  display: block;
+  font-weight: 600;
+}
+
+.session-status__source {
+  display: block;
+  font-size: 0.75rem;
+}
+
+.demo-session-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 8px;
+}
+
+.demo-session-controls label {
+  font-weight: 600;
+}
+
+.demo-session-controls select {
+  min-height: 44px;
+  max-width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--color-control-border);
+  border-radius: 8px;
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.demo-session-controls > span {
+  font-size: 0.75rem;
 }
 
 .municipal-workspace {
@@ -647,6 +687,10 @@ body:has(.navigation-dialog[open]) {
 
   .session-status {
     padding: 9px;
+  }
+
+  .session-status__role {
+    display: none;
   }
 
   .municipal-main {

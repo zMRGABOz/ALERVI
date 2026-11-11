@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { env, type ApiMode } from "../../../config/env";
+import { SessionMetricCard } from "../../../components/Auth/SessionMetricCard";
 import { Icon } from "../../../components/UI/Icon";
 import { MetricCard } from "../../../components/UI/MetricCard";
 import { QueryState } from "../../../components/UI/QueryState";
@@ -33,7 +34,7 @@ export default function SummaryPage() {
         <MetricCard label="Comuna" value="Concepción" description="Ámbito territorial de la consulta." icon={<Icon name="point" />} />
         <MetricCard label="Período propuesto" value="2020–2025" description="Cobertura por confirmar con los datos." icon={<Icon name="calendar" />} />
         <MetricCard label="Modo de datos" value={dataMode.label} description={dataMode.description} icon={<Icon name="layers" />} />
-        <MetricCard label="Acceso municipal" value="Sin iniciar sesión" description="Ingreso de funcionarios en preparación." icon={<Icon name="user" />} />
+        <SessionMetricCard />
       </section>
 
       <div className="summary-panels">

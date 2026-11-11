@@ -9,7 +9,7 @@ export function getWeights(
 ): Promise<Weights> {
   return apiRequest<Weights>("/api/v1/factores/ponderaciones", {
     auth: "required",
-    accessToken: options.accessToken,
+    session: options.session,
     signal: options.signal,
     timeoutMs: options.timeoutMs,
   });
@@ -23,7 +23,7 @@ export function updateWeights(
     method: "PUT",
     body: weights,
     auth: "required",
-    accessToken: options.accessToken,
+    session: options.session,
     signal: options.signal,
     timeoutMs: options.timeoutMs,
   });

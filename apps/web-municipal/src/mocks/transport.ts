@@ -1,12 +1,12 @@
+import { canUseDemoSession } from "../config/demo-session";
 import type { components } from "../types/api.generated";
-import { DEMO_TOKEN_PREFIX, type ApiTransport } from "../services/transport";
+import { isSessionRole, type Session } from "../types/session";
+import type { ApiTransport } from "../services/transport";
 import {
-  DEMO_CREDENTIALS,
   DEMO_DATA,
   demoDetails,
   demoRisk,
   demoUnscoredPoint,
-  demoUsers,
   demoWeights,
   rankingFixture,
 } from "./fixtures";
@@ -174,8 +174,9 @@ function weightsBody(value: unknown): Schema["PonderacionesUpdateRequest"] {
   return { w_severidad, w_frecuencia, w_tendencia, w_contexto, descripcion_cambio };
 }
 
-// Cada instancia conserva sesiones y pesos solo en memoria. Los escenarios son
-// inyectables para comprobaciones sin añadir parámetros al contrato de servicios.
+// Cada instancia conserva pesos solo en memoria. El perfil llega como contexto
+// local, nunca como Authorization ni mediante un inicio de sesión ficticio.
+// Escenarios inyectables sin añadir parámetros al contrato HTTP de servicios.
 export function createMockTransport({
   scenario = "normal",
   delayMs = scenario === "slow" ? 20_000 : 150,
@@ -183,90 +184,30 @@ export function createMockTransport({
   if (!Number.isInteger(delayMs) || delayMs < 0 || delayMs > 2_147_483_647) {
     throw new RangeError("La latencia de demostración debe ser un entero válido.");
   }
-  const sessions = new Map<
-    string,
-    { user: Schema["UsuarioResponse"]; expiresAt: number }
-  >();
-  let tokenSequence = 0;
   let weightsVersion = 1;
   let weights = structuredClone(demoWeights);
 
-  function login(options: RequestInit): Response {
-    const body = jsonBody(options);
+  function authenticate(session?: Session): Schema["UsuarioResponse"] {
     if (
-      !isRecord(body) || typeof body.correo !== "string" ||
-      typeof body.password !== "string"
+      scenario === "unauthenticated" || !canUseDemoSession() ||
+      session?.source !== "demo" || session.accessToken !== null ||
+      !session.usuario.activo || !isSessionRole(session.rol) ||
+      session.rol !== session.usuario.rol
     ) {
       throw new MockHttpError(
-        400, "CREDENCIALES_INVALIDAS", "Ingresa correo y contraseña de demostración.",
+        401, "SESION_REQUERIDA", "Se requiere un perfil de demostración local válido.",
       );
     }
-    const email = body.correo.trim().toLowerCase();
-    if (email === DEMO_CREDENTIALS.blocked) {
-      throw new MockHttpError(
-        423, "CUENTA_BLOQUEADA", "La cuenta de demostración está bloqueada temporalmente.",
-      );
-    }
-    const user = email === DEMO_CREDENTIALS.inspector
-      ? demoUsers.inspector
-      : email === DEMO_CREDENTIALS.administrator
-        ? demoUsers.administrador
-        : undefined;
-    if (!user || body.password !== DEMO_CREDENTIALS.password) {
-      throw new MockHttpError(
-        401, "CREDENCIALES_INVALIDAS", "El correo o la contraseña de demostración no son válidos.",
-      );
-    }
-    if (user.rol === "administrador" && !body.codigo_mfa) {
-      const pending: Schema["LoginResponse"] = {
-        access_token: "",
-        token_type: "bearer",
-        expires_in: 0,
-        mfa_requerido: true,
-        usuario: user,
-      };
-      return Response.json(pending);
-    }
-    if (user.rol === "administrador" && body.codigo_mfa !== DEMO_CREDENTIALS.mfaCode) {
-      throw new MockHttpError(
-        401, "MFA_INVALIDO", "El código MFA de demostración no es válido.",
-      );
-    }
-    const token = `${DEMO_TOKEN_PREFIX}${user.rol}:${++tokenSequence}`;
-    const expiresIn = 3600;
-    sessions.set(token, { user, expiresAt: Date.now() + expiresIn * 1000 });
-    const result: Schema["LoginResponse"] = {
-      access_token: token,
-      token_type: "bearer",
-      expires_in: expiresIn,
-      mfa_requerido: false,
-      usuario: user,
-    };
-    return Response.json(result);
-  }
-
-  function authenticate(options: RequestInit): Schema["UsuarioResponse"] {
-    const authorization = new Headers(options.headers).get("Authorization");
-    const token = authorization?.startsWith("Bearer ") ? authorization.slice(7) : "";
-    const session = sessions.get(token);
-    if (
-      scenario === "unauthenticated" || !session ||
-      session.expiresAt <= Date.now()
-    ) {
-      sessions.delete(token);
-      throw new MockHttpError(
-        401, "SESION_EXPIRADA", "La sesión de demostración no es válida o ha expirado.",
-      );
-    }
+    session.signal.throwIfAborted();
     if (scenario === "forbidden") {
       throw new MockHttpError(
         403, "PERMISO_DENEGADO", "La demostración simula una respuesta sin permiso.",
       );
     }
-    return session.user;
+    return session.usuario;
   }
 
-  return async (url, options) => {
+  return async (url, options, session) => {
     await wait(delayMs, options.signal);
     try {
       if (scenario === "unavailable") {
@@ -276,7 +217,6 @@ export function createMockTransport({
       }
       const method = options.method ?? "GET";
       const path = url.pathname;
-      if (path === "/api/v1/auth/login" && method === "POST") return login(options);
       if (path === "/api/v1/publico/riesgo" && method === "GET") {
         return Response.json(riskFixture(url.searchParams, scenario === "empty"), {
           headers: { "Content-Type": "application/geo+json" },
@@ -293,7 +233,7 @@ export function createMockTransport({
           404, "RUTA_NO_DISPONIBLE", "Esta operación no está disponible en la demostración.",
         );
       }
-      const user = authenticate(options);
+      const user = authenticate(session);
 
       if (isRanking) {
         const [start, end] = period(url.searchParams);

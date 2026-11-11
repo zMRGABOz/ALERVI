@@ -13,7 +13,7 @@ export function getRanking(
   return apiRequest<RankingResponse>("/api/v1/ranking", {
     query,
     auth: "required",
-    accessToken: options.accessToken,
+    session: options.session,
     signal: options.signal,
     timeoutMs: options.timeoutMs,
   });
