@@ -192,6 +192,10 @@ def main():
         conexion.commit()
     conexion.close()
 
+    print("======================")
+    print("CARGA DE DATOS CONASET")
+    print("======================")
+
     print(f"Filas leidas: {len(features)}")
     print(f"Filas rechazadas: {sum(rechazos.values())}")
     for motivo, n in rechazos.items():
