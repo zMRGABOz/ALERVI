@@ -1,6 +1,13 @@
 name: CI Web
 
 on:
+  push:
+    branches:
+      - develop
+      - main
+    paths:
+      - 'apps/web-municipal/**'
+      - '.github/workflows/ci-web.yml'
   pull_request:
     branches:
       - develop
@@ -11,7 +18,9 @@ on:
 
 jobs:
   test-web:
+    name: Web Lint + Typecheck + Build (RNF-P-4, RNF-M-2)
     runs-on: ubuntu-latest
+    timeout-minutes: 8
     defaults:
       run:
         working-directory: apps/web-municipal
