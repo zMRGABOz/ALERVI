@@ -34,8 +34,8 @@ export const municipalNavigation: readonly NavigationGroup[] = [
         id: "ranking",
         label: "Ranking de prioridades",
         icon: "ranking",
+        href: routes.ranking,
         roles: municipalRoles,
-        unavailableReason: "Próximamente",
       },
       {
         id: "point",
