@@ -3,11 +3,13 @@ export type ApiMode = "mock" | "api-stub" | "api";
 export type PublicEnv = Readonly<{
   apiMode: ApiMode;
   apiBaseUrl: string;
+  cartoBasemapKey: string | null;
 }>;
 
 type PublicEnvInput = {
   NEXT_PUBLIC_API_MODE?: string;
   NEXT_PUBLIC_API_BASE_URL?: string;
+  NEXT_PUBLIC_CARTO_BASEMAP_KEY?: string;
 };
 
 export function parsePublicEnv(values: PublicEnvInput): PublicEnv {
@@ -43,10 +45,18 @@ export function parsePublicEnv(values: PublicEnvInput): PublicEnv {
     );
   }
 
-  return Object.freeze({ apiMode, apiBaseUrl: apiBaseUrl.href });
+  const cartoBasemapKey = values.NEXT_PUBLIC_CARTO_BASEMAP_KEY?.trim() || null;
+  if (cartoBasemapKey && /\s/.test(cartoBasemapKey)) {
+    throw new Error(
+      "Configuración inválida: NEXT_PUBLIC_CARTO_BASEMAP_KEY debe ser una clave pública de mapas sin espacios.",
+    );
+  }
+
+  return Object.freeze({ apiMode, apiBaseUrl: apiBaseUrl.href, cartoBasemapKey });
 }
 
 export const env = parsePublicEnv({
   NEXT_PUBLIC_API_MODE: process.env.NEXT_PUBLIC_API_MODE,
   NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL,
+  NEXT_PUBLIC_CARTO_BASEMAP_KEY: process.env.NEXT_PUBLIC_CARTO_BASEMAP_KEY,
 });

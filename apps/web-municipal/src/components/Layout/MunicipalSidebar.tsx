@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, type KeyboardEvent, type RefObject } from "react";
-import { getMunicipalNavigation, navigationDialogId } from "../../config/navigation";
+import { getMunicipalNavigation, navigationDialogId, publicNavigation } from "../../config/navigation";
 import { useSession } from "../../hooks/useSession";
 import { Icon } from "../UI/Icon";
 
@@ -19,6 +19,15 @@ function NavigationContent({
 
   return (
     <nav aria-label="Navegación municipal">
+      <ul className="public-navigation">
+        {publicNavigation.map((item) => (
+          <li key={item.id}>
+            <Link href={item.href} className="navigation-item" aria-current={pathname === item.href ? "page" : undefined} onClick={onNavigate}>
+              <Icon name={item.icon} className="shrink-0" /><span className="navigation-item__label">{item.label}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
       {getMunicipalNavigation(rol).map((group) => (
         <div key={group.id} className="navigation-group">
           <p id={`${idPrefix}-${group.id}`} className="navigation-group__label">{group.label}</p>

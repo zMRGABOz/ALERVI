@@ -21,6 +21,9 @@ type NavigationGroup = {
 export const navigationDialogId = "menu-municipal";
 const municipalRoles: readonly SessionRole[] = ["inspector", "administrador"];
 
+export const municipalEntry = { label: "Espacio municipal", href: routes.summary } as const;
+export const publicNavigation = [{ id: "map", label: "Mapa público", icon: "map", href: routes.map }] as const;
+
 export const municipalNavigation: readonly NavigationGroup[] = [
   {
     id: "consulta",

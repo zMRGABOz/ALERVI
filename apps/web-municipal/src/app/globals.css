@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
 
 :root {
   color-scheme: light;
@@ -715,5 +716,375 @@ body:has(.navigation-dialog[open]) {
 @media (prefers-reduced-motion: reduce) {
   .query-state__spinner {
     animation: none;
+  }
+}
+
+.public-navigation {
+  padding-bottom: 12px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.public-map-main {
+  max-width: 1504px;
+  margin: 0 auto;
+  padding: 32px;
+}
+
+.public-map-page .summary-heading > div {
+  flex: 1 1 30rem;
+}
+
+.public-map-page .summary-heading__description {
+  max-width: none;
+}
+
+.public-map-context,
+.risk-map-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+}
+
+.public-map-context {
+  margin-bottom: 20px;
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+}
+
+.public-map-context p:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-heading);
+  font-weight: 600;
+}
+
+.public-map-context button {
+  margin-left: auto;
+}
+
+.button-secondary:disabled {
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  cursor: wait;
+}
+
+.risk-legend {
+  margin-bottom: 24px;
+  padding: 16px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+}
+
+.risk-legend h2 {
+  margin-bottom: 12px;
+  color: var(--color-heading);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.risk-legend ul,
+.risk-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+}
+
+.risk-legend ul {
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+
+.risk-legend__dot {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border: 2px solid;
+  border-radius: 50%;
+}
+
+.risk-legend p {
+  margin-top: 12px;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  line-height: 1.7;
+}
+
+.risk-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.public-map-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.9fr) minmax(300px, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.public-map-panel,
+.public-list-panel {
+  min-width: 0;
+}
+
+.inline-link {
+  color: var(--color-primary);
+  font-size: 0.8125rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.risk-map-toolbar {
+  justify-content: space-between;
+  padding: 12px 16px;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+}
+
+.risk-map-toolbar .button-secondary {
+  font-size: 0.75rem;
+}
+
+.risk-map-viewport {
+  position: relative;
+  z-index: 0;
+  background: var(--color-surface-muted);
+}
+
+.risk-map-canvas {
+  width: 100%;
+  height: 520px;
+  background: var(--color-surface-muted);
+  font-family: var(--font-system);
+}
+
+.risk-map .leaflet-control-zoom a {
+  width: 44px;
+  height: 44px;
+  line-height: 42px;
+  color: var(--color-heading);
+  background: var(--color-surface);
+}
+
+.risk-map .leaflet-bar {
+  border: 1px solid var(--color-control-border);
+  box-shadow: var(--shadow-card);
+}
+
+.risk-map .leaflet-control-attribution {
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+  font-size: 0.6875rem;
+}
+
+.risk-map .leaflet-control-attribution a {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
+.public-point-popup h3 {
+  color: var(--color-heading);
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.public-point-popup__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.public-point-popup__priority {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.public-point-popup p {
+  margin: 10px 0 0;
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.map-base-status,
+.map-base-unavailable,
+.map-tile-error {
+  min-height: 40px;
+  padding: 12px 16px;
+  border-radius: 0 0 12px 12px;
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.map-base-status {
+  color: var(--color-text-muted);
+}
+
+.map-base-unavailable {
+  color: var(--color-info);
+  background: var(--color-info-bg);
+}
+
+.map-tile-error {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--color-risk-critical);
+  background: var(--color-risk-critical-bg);
+}
+
+.public-selection-status {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.public-point-list {
+  max-height: 610px;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.public-point-card {
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+}
+
+.public-point-card + .public-point-card {
+  margin-top: 12px;
+}
+
+.public-point-card[data-selected="true"] {
+  border-color: var(--color-primary);
+  background: var(--color-selected-bg);
+  box-shadow: inset 3px 0 var(--color-primary);
+}
+
+.public-point-select {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  border-radius: 4px;
+  text-align: left;
+  color: var(--color-primary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.6;
+  cursor: pointer;
+}
+
+.public-point-select svg {
+  flex-shrink: 0;
+}
+
+.public-point-select span {
+  overflow-wrap: anywhere;
+}
+
+.public-point-card__priority {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 0.8125rem;
+}
+
+.public-point-card__selected {
+  color: var(--color-primary);
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+.public-point-counts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.public-point-counts dt,
+.public-point-card__summary {
+  color: var(--color-text-muted);
+}
+
+.public-point-counts dd {
+  margin-top: 2px;
+  font-weight: 600;
+}
+
+.public-point-card__summary {
+  margin-top: 12px;
+  font-size: 0.75rem;
+  line-height: 1.7;
+}
+
+.public-query-panel {
+  display: grid;
+  align-items: center;
+  min-height: 360px;
+}
+
+@media (hover: hover) {
+  .public-point-select:hover,
+  .inline-link:hover {
+    color: var(--color-primary-hover);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+}
+
+@media (width < 64rem) {
+  .public-map-main {
+    padding: 24px;
+  }
+
+  .public-map-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .public-point-list {
+    max-height: none;
+  }
+}
+
+@media (width < 40rem) {
+  .public-map-main {
+    padding: 24px 16px;
+  }
+
+  .public-map-header .button-secondary {
+    padding: 10px;
+    font-size: 0.75rem;
+  }
+
+  .public-map-context button {
+    margin-left: 0;
+  }
+
+  .risk-map-canvas {
+    height: 360px;
   }
 }
