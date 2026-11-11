@@ -8,8 +8,8 @@ relacional del SRS (sección 5.1.2).
 | Carpeta | Para qué sirve |
 |---|---|
 | `migrations/` | Archivos SQL numerados que crean las tablas, índices y permisos. Se aplican en orden |
-| `seeds/` | Datos de **desarrollo** en SQL (comuna provisoria, usuarios ficticios, factores de riesgo) |
-| `ingest/` | Cargador de siniestros CONASET (GeoJSON), datos sintéticos de prueba y el script que corre en Docker |
+| `seeds/` | Datos de **desarrollo** en SQL (usuarios ficticios, factores de riesgo y fichas de prueba) |
+| `ingest/` | Descargador y cargadores (comuna, siniestros CONASET, colegios y paraderos OSM), sus archivos en `data/` y el script que corre en Docker |
 
 ## Cómo ejecutar
 
@@ -37,30 +37,33 @@ Para ver lo que hizo la carga:
 docker compose logs datos-dev
 ```
 
-Debe mostrar el resumen del cargador (12 filas leídas, 3 rechazadas a propósito,
-6 puntos y 8 registros guardados). Si lo levantas de nuevo, dirá
-`Datos de desarrollo ya cargados` y no repetirá nada.
+Espera a que `alervi-datos-dev` diga `Exited (0)` antes de
+mirar los logs. Deben aparecer, en orden, las secciones de comuna, CONASET, OSM y
+seeds. Si el contenedor se levanta de nuevo en los logs dirá: `Datos de desarrollo ya cargados`
+
+### Datos que quedan cargados
 
 ### Datos que quedan cargados
 
 | Tabla | Contenido |
 |---|---|
-| `comuna` | 1 fila (Concepción) con un **rectángulo provisorio**, no el límite oficial |
+| `comuna` | 1 fila (Concepción, `08101`) con el límite administrativo de OpenStreetMap |
 | `usuario` | 2 cuentas ficticias |
 | `factor_riesgo` | 5 factores iniciales |
-| `punto_critico` | 6 puntos sintéticos |
-| `registro` | 8 registros sintéticos (punto y año) |
+| `punto_critico` | 2671 puntos reales de CONASET dentro de la comuna |
+| `registro` | 4895 registros (punto y año) |
+| `elemento_urbano` | 809 elementos de OSM: 128 colegios y 681 paraderos |
+| `ficha_inspeccion`, `registra`, `fotografia` | 4 fichas de prueba sobre los 3 puntos con más siniestros, con 6 factores y 4 fotos. Las rutas de las fotos son ficticias: los archivos no existen |
 
-Quedan **vacías**: `elemento_urbano`, `ficha_inspeccion`, `registra`, `fotografia`
-y `evento_auditoria`.
+`evento_auditoria` queda vacía: la llena la API.
 
 Para verificar:
 
 ```bash
-docker exec alervi-db psql -U alervi_user -d alervi_db -c "SELECT (SELECT count(*) FROM usuario) AS usuarios, (SELECT count(*) FROM factor_riesgo) AS factores, (SELECT count(*) FROM comuna) AS comunas, (SELECT count(*) FROM punto_critico) AS puntos, (SELECT count(*) FROM registro) AS registros;"
+docker exec alervi-db psql -U alervi_user -d alervi_db -c "SELECT (SELECT count(*) FROM comuna) AS comuna, (SELECT count(*) FROM usuario) AS usuarios, (SELECT count(*) FROM factor_riesgo) AS factores, (SELECT count(*) FROM punto_critico) AS puntos, (SELECT count(*) FROM registro) AS registros, (SELECT count(*) FROM elemento_urbano) AS elementos, (SELECT count(*) FROM ficha_inspeccion) AS fichas, (SELECT count(*) FROM registra) AS registra, (SELECT count(*) FROM fotografia) AS fotos;"
 ```
 
-Resultado esperado: `2 | 5 | 1 | 6 | 8`.
+Resultado esperado: `1 | 2 | 5 | 2671 | 4895 | 809 | 4 | 6 | 4`.
 
 ## Usuarios y contraseñas (solo desarrollo)
 
@@ -145,38 +148,41 @@ docker compose up -d --build db datos-dev
 
 ## Cargador de siniestros (CONASET) a mano
 
-El servicio `datos-dev` ya carga los datos sintéticos automáticamente. Esta sección
-es solo para ejecutar el cargador manualmente, por ejemplo con un archivo real.
+## Cargadores a mano
 
-El script `ingest/load_conaset.py` lee un GeoJSON, valida cada fila, fusiona las que
-tienen igual coordenada y año (sumando los conteos) y guarda en `punto_critico` y
-`registro`. Se puede repetir sin duplicar datos.
+`datos-dev` ejecuta todo en este orden: **comuna → CONASET → OSM → seeds**. El orden
+importa: CONASET y OSM usan el polígono de la comuna para descartar lo que cae fuera.
+Cada cargador se puede repetir sin duplicar datos y acepta `--dry-run` (prueba sin guardar).
 
-Requisitos: Python 3.12 o superior (el comando es `python` o `python3`, según tu
-sistema) y las dependencias del cargador:
+| Script | Qué hace |
+|---|---|
+| `ingest/descargar_conaset.py` | Descarga los puntos críticos de CONASET (Gran Concepción) a `data/conaset_real.geojson`. Solo se corre a mano y necesita `pip install requests` |
+| `ingest/cargar_comuna.py` | Carga el polígono de la comuna en la tabla `comuna` |
+| `ingest/cargar_conaset.py` | Valida cada fila, fusiona las de igual coordenada y año, y guarda en `punto_critico` y `registro`. Descarta los puntos fuera de la comuna |
+| `ingest/cargar_osm.py` | Guarda en `elemento_urbano` los colegios y paraderos que están dentro de la comuna o a 150 m o menos de su límite |
+
+Requisitos: Python 3.12 o superior y las dependencias de los cargadores:
 
 ```bash
 pip install -r packages/db/ingest/requirements.txt
 ```
 
-Ejecución (la BD debe estar levantada):
+Ejemplo (la BD debe estar levantada):
 
 ```bash
-# Probar sin guardar nada
-python packages/db/ingest/load_conaset.py packages/db/ingest/data/conaset_sintetico.geojson --dry-run
-
-# Guardar
-python packages/db/ingest/load_conaset.py packages/db/ingest/data/conaset_sintetico.geojson
+python packages/db/ingest/cargar_comuna.py packages/db/ingest/data/comuna_concepcion.geojson --dry-run
+python packages/db/ingest/cargar_conaset.py packages/db/ingest/data/conaset_real.geojson --dry-run
+python packages/db/ingest/cargar_osm.py packages/db/ingest/data/osm_bbox_concepcion.geojson --dry-run
 ```
 
-El script necesita saber a qué base de datos conectarse. Esos datos los lee de tu
-archivo `.env` (`POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER` y
-`POSTGRES_PASSWORD`), por lo que no hay que escribir ninguna clave en el comando.
-Se conecta con el usuario `alervi_user`, porque `alervi_app` solo puede leer esas tablas.
+Los cargadores leen la conexión del `.env` (`POSTGRES_HOST`, `POSTGRES_PORT`,
+`POSTGRES_DB`, `POSTGRES_USER` y `POSTGRES_PASSWORD`) y usan `alervi_user`, porque
+`alervi_app` solo puede leer esas tablas.
 
-## Pendiente
+## Fuentes de los datos
 
-- Polígono oficial de la comuna (hoy es un rectángulo provisorio).
-- Carga de los datos reales de CONASET.
-- Carga de colegios y paraderos desde OpenStreetMap (`elemento_urbano`).
-- Base de datos compartida en la nube (Supabase).
+| Dato | Fuente | Fecha de descarga | Licencia |
+|---|---|---|---|
+| Límite de la comuna | OpenStreetMap, relación 1620105 (`admin_level=8`, código 08101), vía Nominatim | 2026-11-04 | ODbL, © colaboradores de OpenStreetMap |
+| Colegios y paraderos | OpenStreetMap (`amenity=school`, `highway=bus_stop`), vía Overpass Turbo | 2026-11-04 | ODbL, © colaboradores de OpenStreetMap |
+| Siniestros | CONASET, servicio público ArcGIS `Puntos_criticos_2020_2025` (cuenta `conaset_mtt`) | 2026-11-04 | No declarada por el propietario [Info](https://services3.arcgis.com/vaJl1B5HEzZj7154/arcgis/rest/services/Puntos_criticos_2020_2025/FeatureServer/info/itemInfo?f=pjson) |
