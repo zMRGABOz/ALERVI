@@ -1,6 +1,6 @@
 """
 Configuración global de fixtures y mocks para la suite de pruebas de ALERVI Backend.
--------------------------------------------------------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Define fixtures reutilizables para TestClient, sesiones de prueba y payloads mock.
 """
 
@@ -17,13 +17,6 @@ def client() -> TestClient:
         yield test_client
 
 
-@pytest.fixture(scope="function")
-def db_session_mock():
-    """Fixture para simular/mockear sesiones de SQLAlchemy en tests unitarios e integrados."""
-    # Para tests aislados donde se requiera interceptar queries o writes a la BD
-    yield None
-
-
 @pytest.fixture
 def auth_headers(client: TestClient) -> dict:
     """Fixture que autentica al usuario inspector de prueba y retorna los headers con Bearer JWT."""
@@ -33,10 +26,12 @@ def auth_headers(client: TestClient) -> dict:
         "codigo_mfa": "482910",
     }
     response = client.post("/api/v1/auth/login", json=payload)
-    if response.status_code == 200:
-        token = response.json().get("access_token")
-        return {"Authorization": f"Bearer {token}"}
-    return {}
+    if response.status_code != 200:
+        pytest.fail(
+            f"No fue posible autenticar inspector para auth_headers: HTTP {response.status_code}"
+        )
+    token = response.json().get("access_token")
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture

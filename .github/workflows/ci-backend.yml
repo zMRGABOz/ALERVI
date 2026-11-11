@@ -14,7 +14,9 @@ on:
 
 jobs:
   lint-and-test:
+    name: Backend Lint + Test (RNF-P-4, RNF-M-1, RNF-M-2)
     runs-on: ubuntu-latest
+    timeout-minutes: 8
 
     defaults:
       run:
@@ -34,22 +36,17 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-        # Instalar herramientas de desarrollo (linting y testing)
         pip install ruff pytest pytest-cov httpx
 
     - name: Linting con Ruff
       run: |
-        # Verifica errores de sintaxis y estilo
         ruff check .
-        # Verifica formato
         ruff format --check .
 
     - name: Tests con pytest
       env:
-        # Variables de entorno dummy para tests
         BACKEND_SECRET_KEY: "test-secret"
         DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy"
         PYTHONPATH: "."
       run: |
-        python -m pytest -v --cov=app --cov-report=term-missing --cov-fail-under=80 tests/
-
+        python -m pytest -v --cov=app --cov-branch --cov-report=term-missing --cov-fail-under=80 tests/
