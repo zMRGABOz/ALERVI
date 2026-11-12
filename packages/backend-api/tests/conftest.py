@@ -33,7 +33,11 @@ def auth_headers(client: TestClient) -> dict:
             from app.models.db_models import Usuario
 
             with SessionLocal() as db:
-                user = db.query(Usuario).filter(Usuario.correo == "inspector@alervi.test").first()
+                user = (
+                    db.query(Usuario)
+                    .filter(Usuario.correo == "inspector@alervi.test")
+                    .first()
+                )
                 if user and not user.activo:
                     user.activo = True
                     db.commit()
@@ -63,7 +67,11 @@ def admin_auth_headers(client: TestClient) -> dict:
             from app.models.db_models import Usuario
 
             with SessionLocal() as db:
-                user = db.query(Usuario).filter(Usuario.correo == "admin@alervi.test").first()
+                user = (
+                    db.query(Usuario)
+                    .filter(Usuario.correo == "admin@alervi.test")
+                    .first()
+                )
                 if user and not user.activo:
                     user.activo = True
                     db.commit()

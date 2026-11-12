@@ -51,7 +51,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         try:
             _, salt_hex, key_hex = hashed_password.split(":")
             calc = hashlib.pbkdf2_hmac(
-                "sha256", plain_password.encode("utf-8"), bytes.fromhex(salt_hex), 100000
+                "sha256",
+                plain_password.encode("utf-8"),
+                bytes.fromhex(salt_hex),
+                100000,
             )
             return hmac.compare_digest(calc.hex(), key_hex)
         except Exception:
@@ -97,8 +100,12 @@ def create_access_token(
     payload["iat"] = now
     payload["exp"] = now + expires_delta_seconds
 
-    header_b64 = _b64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8"))
-    payload_b64 = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    header_b64 = _b64url_encode(
+        json.dumps(header, separators=(",", ":")).encode("utf-8")
+    )
+    payload_b64 = _b64url_encode(
+        json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    )
 
     signing_input = f"{header_b64}.{payload_b64}".encode("utf-8")
     signature = hmac.new(

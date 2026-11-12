@@ -116,6 +116,23 @@ Una vez que los contenedores esten "Up", verifica que todo este sano:
 - **Health Check API:** Ejecuta `curl -s http://localhost:8000/health` (Deberia retornar `{"status":"ok",...}`)
 - **Base de Datos:** Accesible en `localhost:5432` con las credenciales definidas en tu `.env`.
 
+#### Autenticación y Credenciales de Desarrollo
+La API implementa autenticación mediante **Bearer Token (JWT HS256)**:
+- `POST /api/v1/auth/login`: Valida correo y contraseña. Devuelve un access token Bearer.
+- **Cuentas de prueba (Seed):**
+  | Rol | Correo | Contraseña |
+  | :--- | :--- | :--- |
+  | Administrador | `admin@alervi.test` | `Dev-2026-ALERVI` |
+  | Inspector | `inspector@alervi.test` | `Dev-2026-ALERVI` |
+- **Rutas protegidas (`Authorization: Bearer <token>`):**
+  - **Requieren rol `administrador`:** `/api/v1/usuarios` (CRUD) y `/api/v1/auditoria`.
+  - **Requieren usuario autenticado:** `/api/v1/inspections` (creación y actualización de fichas, subida de fotografías).
+
+#### Reglas Clave de la API
+- **Ranking Jerarquizado (`/api/v1/ranking`):** Soporta tanto `anio` individual (ej. `?anio=2024`) como rango (`periodo_inicio` y `periodo_fin`). La ordenación se realiza globalmente por Índice de Prioridad (IP) y desempates multicriterio según la regla **RB-7**.
+- **Fichas de Inspección (`/api/v1/inspections`):** La `fecha_visita` debe ser una fecha no futura (`<= HOY`, formato `YYYY-MM-DD`, regla **RB-10**).
+- **Privacidad y Telemetría (`/api/v1/alerts`):** Jamás se persisten ni registran coordenadas GPS sin procesar en logs técnicos (**RNF-S-8**).
+
 ### 5. Comandos Utiles de Operacion
 
 ```bash
@@ -129,14 +146,33 @@ docker compose down
 docker compose down -v
 ```
 
-### 6. Calidad de Codigo (Pre-commit hooks)
+### 6. Calidad de Codigo y Pruebas
 
-Antes de hacer commits, todo el equipo debe instalar los hooks locales para que el codigo se parsee y verifique automaticamente. Ejecuta esto por unica vez:
+#### Pre-commit hooks
+Antes de hacer commits, instala los hooks locales:
 
 ```bash
-# Requiere Python instalado localmente
 pip install pre-commit
 pre-commit install
+```
+
+#### Backend API (Linter, Formateo y Tests)
+El backend cuenta con validación estricta de estilo y pruebas automatizadas (cobertura requerida $\ge 80\%$):
+
+```bash
+cd packages/backend-api
+
+# 1. Linter estático (Ruff)
+ruff check .
+
+# 2. Formateador de código
+ruff format .
+
+# 3. Verificar formateo sin modificar (verificación de CI)
+ruff format --check .
+
+# 4. Ejecutar suite de pruebas con reporte de cobertura
+pytest tests/ -v --cov=app --cov-report=term-missing
 ```
 
 ---
@@ -193,14 +229,14 @@ alervi/
 |-- packages/
 |   |-- backend-api/                  # ---- Backend (Python + FastAPI) ----
 |   |   |-- app/
-|   |   |   |-- main.py               # Entry point FastAPI
+|   |   |   |-- main.py               # Entry point FastAPI y rutas protegidas
 |   |   |   |-- routers/              # Endpoints por dominio
 |   |   |   |-- models/               # Modelos SQLAlchemy + GeoAlchemy2
-|   |   |   |-- schemas/              # Schemas Pydantic (validacion)
-|   |   |   |-- services/             # Logica de negocio (scoring, justificacion)
-|   |   |   |-- core/                 # Config, seguridad, dependencias
+|   |   |   |-- schemas/              # Schemas Pydantic (validacion y contratos)
+|   |   |   |-- services/             # Logica de negocio (scoring RB-7, CRUD, PostGIS)
+|   |   |   |-- core/                 # Config, pooler BD, seguridad (JWT HS256, RBAC)
 |   |   |   '-- utils/                # Helpers
-|   |   |-- tests/                    # pytest (TDD para scoring y endpoints)
+|   |   |-- tests/                    # pytest (cobertura >= 80%, unit + integracion)
 |   |   |-- alembic/                  # Migraciones de BD
 |   |   '-- Dockerfile
 |   |

@@ -288,7 +288,6 @@ def test_ranking_f03_respuesta_vacia_legitima():
     assert all(p.id_punto != 101 for p in res.puntos)
 
 
-
 def test_obtener_detalle_punto_mock():
     """Verifica el detalle analitico de un punto con entorno urbano."""
     mock_db = MagicMock()

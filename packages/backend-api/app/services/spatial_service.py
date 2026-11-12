@@ -7,6 +7,7 @@ Provee funciones para:
 - Detalle técnico y contexto de entorno urbano (150m buffer).
 - Evaluación en tiempo real de telemetría para alertas de proximidad (RF-8).
 """
+
 import logging
 from typing import List, Optional, Tuple
 
@@ -57,6 +58,7 @@ except ImportError:
 
     class OperationalError(Exception):  # type: ignore
         pass
+
 
 logger = logging.getLogger("alervi.spatial_service")
 
@@ -151,7 +153,9 @@ def obtener_capa_riesgo_publico(
 ) -> GeoJsonFeatureCollection:
     """Retorna la capa GeoJSON pública con coordenadas WGS84 y estadísticas agregadas."""
     if db is None:
-        logger.warning("DB no disponible (db is None). Usando fallback para capa de riesgo.")
+        logger.warning(
+            "DB no disponible (db is None). Usando fallback para capa de riesgo."
+        )
         return _fallback_capa_riesgo(comuna)
 
     try:
@@ -193,7 +197,10 @@ def obtener_capa_riesgo_publico(
         rows = query.all()
 
         if not rows:
-            logger.info("Consulta de capa de riesgo sin registros para filtro '%s'. Usando fallback.", filtro_comuna)
+            logger.info(
+                "Consulta de capa de riesgo sin registros para filtro '%s'. Usando fallback.",
+                filtro_comuna,
+            )
             return _fallback_capa_riesgo(comuna)
 
         features: List[GeoJsonFeature] = []
@@ -241,7 +248,11 @@ def obtener_capa_riesgo_publico(
 
         return GeoJsonFeatureCollection(type="FeatureCollection", features=features)
     except (OperationalError, Exception) as exc:
-        logger.warning("Error en consulta de capa de riesgo (%s: %s). Activando fallback resiliente.", type(exc).__name__, exc)
+        logger.warning(
+            "Error en consulta de capa de riesgo (%s: %s). Activando fallback resiliente.",
+            type(exc).__name__,
+            exc,
+        )
         return _fallback_capa_riesgo(comuna)
 
 
@@ -254,7 +265,11 @@ def _fallback_ranking(
     periodo_label = (
         periodo
         if periodo is not None
-        else (str(periodo_inicio) if periodo_inicio == periodo_fin else f"{periodo_inicio}-{periodo_fin}")
+        else (
+            str(periodo_inicio)
+            if periodo_inicio == periodo_fin
+            else f"{periodo_inicio}-{periodo_fin}"
+        )
     )
     return RankingResponse(
         total_puntos=1,
@@ -408,8 +423,12 @@ def obtener_ranking(
                         id_punto=row.id_punto,
                         nombre_interseccion=f"Intersección #{row.id_punto} ({nombre_comuna_disp})",
                         comuna=nombre_comuna_disp,
-                        latitud=round(float(row.lat), 6) if row.lat is not None else 0.0,
-                        longitud=round(float(row.lon), 6) if row.lon is not None else 0.0,
+                        latitud=round(float(row.lat), 6)
+                        if row.lat is not None
+                        else 0.0,
+                        longitud=round(float(row.lon), 6)
+                        if row.lon is not None
+                        else 0.0,
                         motivo=f"Sin registros de siniestros en período {periodo_resp}",
                     )
                 )
@@ -431,7 +450,9 @@ def obtener_ranking(
         )
 
         total_puntos = len(candidatos)
-        puntos_pagina = candidatos[offset : offset + limit] if offset < total_puntos else []
+        puntos_pagina = (
+            candidatos[offset : offset + limit] if offset < total_puntos else []
+        )
 
         items: List[PuntoRankingItem] = []
         for idx, item in enumerate(puntos_pagina):
@@ -538,7 +559,10 @@ def obtener_detalle_punto(
 ) -> Optional[PuntoCriticoTecnicoDetail]:
     """Obtiene el detalle analítico completo de un punto crítico con entorno urbano."""
     if db is None:
-        logger.warning("DB no disponible (db is None). Usando fallback para detalle de punto #%s.", id_punto)
+        logger.warning(
+            "DB no disponible (db is None). Usando fallback para detalle de punto #%s.",
+            id_punto,
+        )
         return _fallback_detalle(id_punto)
 
     try:
@@ -556,7 +580,10 @@ def obtener_detalle_punto(
         )
 
         if not punto_row:
-            logger.info("Punto crítico #%s no encontrado en BD. Usando fallback de detalle.", id_punto)
+            logger.info(
+                "Punto crítico #%s no encontrado en BD. Usando fallback de detalle.",
+                id_punto,
+            )
             return _fallback_detalle(id_punto)
 
         registros = (
@@ -690,7 +717,12 @@ def obtener_detalle_punto(
             advertencia_legal="El índice expresa prioridad relativa dentro de Concepción (RB-6).",
         )
     except (OperationalError, Exception) as exc:
-        logger.warning("Error al obtener detalle del punto #%s (%s: %s). Activando fallback resiliente.", id_punto, type(exc).__name__, exc)
+        logger.warning(
+            "Error al obtener detalle del punto #%s (%s: %s). Activando fallback resiliente.",
+            id_punto,
+            type(exc).__name__,
+            exc,
+        )
         return _fallback_detalle(id_punto)
 
 
@@ -716,7 +748,9 @@ def evaluar_alerta_proximidad(
 ) -> AlertCheckResponse:
     """Evalúa la posición instantánea del vehículo con PostGIS para emitir alerta sonora/visual (RF-8)."""
     if db is None:
-        logger.warning("DB no disponible (db is None). Activando fallback de alerta de proximidad.")
+        logger.warning(
+            "DB no disponible (db is None). Activando fallback de alerta de proximidad."
+        )
         return _fallback_alerta()
 
     try:
@@ -789,5 +823,9 @@ def evaluar_alerta_proximidad(
         )
     except (OperationalError, Exception) as exc:
         # RNF-S-8: Jamás registrar coordenadas GPS de telemetría vehicular en logs técnicos
-        logger.warning("Error al evaluar alerta de proximidad en BD (%s: %s). Activando fallback resiliente.", type(exc).__name__, exc)
+        logger.warning(
+            "Error al evaluar alerta de proximidad en BD (%s: %s). Activando fallback resiliente.",
+            type(exc).__name__,
+            exc,
+        )
         return _fallback_alerta()

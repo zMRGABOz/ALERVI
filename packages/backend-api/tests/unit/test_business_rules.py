@@ -13,7 +13,9 @@ from fastapi.testclient import TestClient
 
 
 @pytest.mark.integration
-def test_ficha_inspeccion_max_notes_length_validation(client: TestClient, auth_headers: dict):
+def test_ficha_inspeccion_max_notes_length_validation(
+    client: TestClient, auth_headers: dict
+):
     """RB-10: Verifica que una ficha con notas mayores a 500 caracteres sea rechazada con HTTP 422."""
     payload_excedido = {
         "id_punto": 101,
@@ -21,7 +23,9 @@ def test_ficha_inspeccion_max_notes_length_validation(client: TestClient, auth_h
         "notas": "A" * 501,
         "factores_riesgo_ids": [1],
     }
-    response = client.post("/api/v1/inspections", json=payload_excedido, headers=auth_headers)
+    response = client.post(
+        "/api/v1/inspections", json=payload_excedido, headers=auth_headers
+    )
     assert response.status_code == 422
 
 
@@ -34,7 +38,9 @@ def test_ficha_inspeccion_valida(client: TestClient, auth_headers: dict):
         "notas": "Inspección técnica en terreno: señalética visible.",
         "factores_riesgo_ids": [1],
     }
-    response = client.post("/api/v1/inspections", json=payload_valido, headers=auth_headers)
+    response = client.post(
+        "/api/v1/inspections", json=payload_valido, headers=auth_headers
+    )
     assert response.status_code == 201
     data = response.json()
     assert "id_ficha" in data
@@ -50,7 +56,9 @@ def test_tc14_ficha_fecha_futura_rechazada(client: TestClient, auth_headers: dic
         "notas": "Visita en fecha futura imposible.",
         "factores_riesgo_ids": [1],
     }
-    response = client.post("/api/v1/inspections", json=payload_futuro, headers=auth_headers)
+    response = client.post(
+        "/api/v1/inspections", json=payload_futuro, headers=auth_headers
+    )
     assert response.status_code == 422, (
         f"Fecha futura 2099-01-01 fue aceptada con código {response.status_code}"
     )

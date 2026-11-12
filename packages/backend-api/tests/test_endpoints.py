@@ -166,7 +166,9 @@ def test_ranking():
     assert res_anio.json()["periodo"] == "2024"
 
     # Validación: anio con intervalo contradictorio retorna 400
-    res_bad = client.get("/api/v1/ranking?anio=2024&periodo_inicio=2021&periodo_fin=2023")
+    res_bad = client.get(
+        "/api/v1/ranking?anio=2024&periodo_inicio=2021&periodo_fin=2023"
+    )
     assert res_bad.status_code == 400
     assert "contradictorios" in res_bad.json()["detail"]
 
@@ -260,7 +262,9 @@ def test_inspections_y_fotos(auth_headers: dict):
     assert res_patch.status_code == 200
 
     # Adjuntar foto (POST /inspections/{id}/fotos)
-    res_foto = client.post(f"/api/v1/inspections/{id_ficha}/fotos", headers=auth_headers)
+    res_foto = client.post(
+        f"/api/v1/inspections/{id_ficha}/fotos", headers=auth_headers
+    )
     assert res_foto.status_code == 201
     assert "ruta" in res_foto.json()
 
