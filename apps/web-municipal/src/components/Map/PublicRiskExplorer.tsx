@@ -14,7 +14,7 @@ export function PublicRiskExplorer() {
   const selected = points.find((point) => point.id_punto === selection.id) ?? null;
 
   function selectPoint(id: number) {
-    setSelection((previous) => ({ id, revision: previous.revision + 1 }));
+    setSelection((previous) => ({ id: previous.id === id ? null : id, revision: previous.revision + 1 }));
   }
 
   return (
@@ -42,7 +42,7 @@ export function PublicRiskExplorer() {
           </section>
           <section id="lista-puntos-publicos" tabIndex={-1} className="surface-card public-list-panel" aria-labelledby="titulo-lista-publica">
             <div className="panel-header"><div><h2 id="titulo-lista-publica">Lista de puntos</h2><p>{points.length} puntos recibidos · mismo ámbito que el mapa</p></div></div>
-            <p className="public-selection-status" role="status">{selected ? `Seleccionado: ${selected.nombre_interseccion}` : "Puedes seleccionar un punto con el teclado."}</p>
+            <p className="public-selection-status" role="status">{selected ? `Seleccionado: ${selected.nombre_interseccion}. Vuelve a pulsarlo para deseleccionarlo.` : "Sin punto seleccionado. Puedes elegir uno desde el mapa o con el teclado en la lista."}</p>
             <PublicPointList points={points} selectedId={selected?.id_punto ?? null} onSelect={selectPoint} />
           </section>
         </div>

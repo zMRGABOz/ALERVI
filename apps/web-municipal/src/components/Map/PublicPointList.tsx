@@ -24,7 +24,7 @@ export function PublicPointList({
                 type="button"
                 className="public-point-select"
                 aria-pressed={selected}
-                aria-label={`Seleccionar ${point.nombre_interseccion} en el mapa`}
+                aria-label={`${selected ? "Deseleccionar" : "Seleccionar"} ${point.nombre_interseccion} en el mapa`}
                 onClick={() => onSelect(point.id_punto)}
               >
                 <Icon name="point" size={18} />
