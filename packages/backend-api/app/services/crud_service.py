@@ -3,9 +3,11 @@ Servicio de operaciones CRUD y persistencia en base de datos para ALERVI.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Gestiona usuarios, factores de riesgo, fichas de inspección, fotografías y bitácora de auditoría.
 """
-
+import logging
 from datetime import date, datetime, timezone
 from typing import List, Optional
+
+logger = logging.getLogger("alervi.crud_service")
 
 try:
     from sqlalchemy import desc
@@ -90,8 +92,11 @@ def authenticate_user(db: Session, payload: LoginRequest) -> LoginResponse:
                         fecha_creacion=None,
                     ),
                 )
-        except (OperationalError, Exception):
-            pass
+            logger.info("Usuario '%s' no encontrado en BD. Usando fallback de autenticación.", correo_req)
+        except (OperationalError, Exception) as exc:
+            logger.warning("Error al autenticar usuario en BD (%s: %s). Usando fallback de desarrollo.", type(exc).__name__, exc)
+    else:
+        logger.warning("DB no disponible (db is None). Usando fallback de autenticación para '%s'.", correo_req)
 
     # Fallback si no hay conexión o usuario no encontrado en mock
     return LoginResponse(
@@ -158,8 +163,11 @@ def listar_usuarios(
                         for u in usuarios
                     ],
                 )
-        except (OperationalError, Exception):
-            pass
+            logger.info("Consulta de usuarios sin resultados en BD. Usando lista fallback.")
+        except (OperationalError, Exception) as exc:
+            logger.warning("Error al listar usuarios en BD (%s: %s). Activando fallback resiliente.", type(exc).__name__, exc)
+    else:
+        logger.warning("DB no disponible (db is None). Usando usuarios fallback.")
 
     return UsuarioListResponse(total=len(fallback_users), usuarios=fallback_users)
 
@@ -209,8 +217,11 @@ def obtener_usuario_por_id(db: Session, id_usuario: int) -> Optional[UsuarioResp
                     activo=u.activo,
                     fecha_creacion=None,
                 )
-        except (OperationalError, Exception):
-            pass
+            logger.info("Usuario #%s no encontrado en BD. Usando fallback.", id_usuario)
+        except (OperationalError, Exception) as exc:
+            logger.warning("Error al obtener usuario #%s en BD (%s: %s). Usando fallback.", id_usuario, type(exc).__name__, exc)
+    else:
+        logger.warning("DB no disponible (db is None). Usando fallback para usuario #%s.", id_usuario)
 
     return UsuarioResponse(
         id_usuario=id_usuario,
@@ -242,8 +253,11 @@ def actualizar_usuario(
                     activo=u.activo,
                     fecha_creacion=None,
                 )
-        except (OperationalError, Exception):
-            pass
+            logger.info("Usuario #%s no encontrado para actualizar en BD. Usando fallback.", id_usuario)
+        except (OperationalError, Exception) as exc:
+            logger.warning("Error al actualizar usuario #%s en BD (%s: %s). Usando fallback.", id_usuario, type(exc).__name__, exc)
+    else:
+        logger.warning("DB no disponible (db is None). Usando fallback al actualizar usuario #%s.", id_usuario)
 
     return UsuarioResponse(
         id_usuario=id_usuario,
@@ -310,8 +324,11 @@ def listar_factores_riesgo(
                     )
                     for f in factores
                 ]
-        except (OperationalError, Exception):
-            pass
+            logger.info("Catálogo de factores sin registros en BD. Usando fallback.")
+        except (OperationalError, Exception) as exc:
+            logger.warning("Error al listar factores de riesgo en BD (%s: %s). Usando catálogo fallback.", type(exc).__name__, exc)
+    else:
+        logger.warning("DB no disponible (db is None). Usando catálogo de factores fallback.")
 
     return fallback_factores
 
@@ -786,8 +803,11 @@ def listar_eventos_auditoria(
                         for e in eventos
                     ],
                 )
-        except (OperationalError, Exception):
-            pass
+            logger.info("Bitácora de auditoría sin eventos en BD. Usando fallback.")
+        except (OperationalError, Exception) as exc:
+            logger.warning("Error al listar eventos de auditoría en BD (%s: %s). Usando fallback.", type(exc).__name__, exc)
+    else:
+        logger.warning("DB no disponible (db is None). Usando eventos de auditoría fallback.")
 
     return fallback_resp
 
