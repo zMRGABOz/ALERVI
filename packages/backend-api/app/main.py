@@ -247,21 +247,41 @@ async def get_ranking(
         None, description="Filtrar cálculo para un año específico (2020-2025)"
     ),
     periodo_inicio: Optional[int] = Query(
-        2020, description="Año de inicio del rango temporal analizado"
+        None, description="Año de inicio del rango temporal analizado"
     ),
     periodo_fin: Optional[int] = Query(
-        2025, description="Año de término del rango temporal analizado"
+        None, description="Año de término del rango temporal analizado"
     ),
     limit: Optional[int] = Query(10, description="Cantidad de puntos a retornar"),
     offset: Optional[int] = Query(0, description="Desplazamiento para paginación"),
     db: Session = Depends(get_db),
 ):
     """Ranking ordenado de puntos con su índice; filtros por comuna y período (RF-3)."""
+    if anio is not None:
+        if (periodo_inicio is not None and periodo_inicio != anio) or (
+            periodo_fin is not None and periodo_fin != anio
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Parámetros temporales contradictorios: no se puede especificar 'anio' junto con un intervalo diferente.",
+            )
+        p_ini = anio
+        p_fin = anio
+    else:
+        p_ini = periodo_inicio if periodo_inicio is not None else 2020
+        p_fin = periodo_fin if periodo_fin is not None else 2025
+        if p_ini > p_fin:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El año de inicio (periodo_inicio) no puede ser mayor que el año de fin (periodo_fin).",
+            )
+
     return spatial_service.obtener_ranking(
         db,
         comuna=comuna,
-        periodo_inicio=periodo_inicio or 2020,
-        periodo_fin=periodo_fin or 2025,
+        anio=anio,
+        periodo_inicio=p_ini,
+        periodo_fin=p_fin,
         limit=limit or 10,
         offset=offset or 0,
     )

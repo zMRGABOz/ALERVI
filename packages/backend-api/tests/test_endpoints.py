@@ -154,6 +154,21 @@ def test_ranking():
     assert "puntos" in data
     assert len(data["puntos"]) > 0
 
+    # Consulta con anio específico
+    res_anio = client.get("/api/v1/ranking?anio=2024")
+    assert res_anio.status_code == 200
+    assert res_anio.json()["periodo"] == "2024"
+
+    # Validación: anio con intervalo contradictorio retorna 400
+    res_bad = client.get("/api/v1/ranking?anio=2024&periodo_inicio=2021&periodo_fin=2023")
+    assert res_bad.status_code == 400
+    assert "contradictorios" in res_bad.json()["detail"]
+
+    # Validación: periodo_inicio > periodo_fin retorna 400
+    res_range_bad = client.get("/api/v1/ranking?periodo_inicio=2025&periodo_fin=2020")
+    assert res_range_bad.status_code == 400
+    assert "mayor" in res_range_bad.json()["detail"]
+
 
 def test_detalle_punto_tecnico():
     """Verifica detalle tecnico de un punto critico (GET /api/v1/puntos/{id_punto})."""

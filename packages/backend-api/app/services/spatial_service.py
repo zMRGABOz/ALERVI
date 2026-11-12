@@ -246,14 +246,22 @@ def obtener_capa_riesgo_publico(
 
 
 def _fallback_ranking(
-    comuna: str, periodo_inicio: int, periodo_fin: int
+    comuna: str,
+    periodo_inicio: int,
+    periodo_fin: int,
+    periodo: Optional[str] = None,
 ) -> RankingResponse:
+    periodo_label = (
+        periodo
+        if periodo is not None
+        else (str(periodo_inicio) if periodo_inicio == periodo_fin else f"{periodo_inicio}-{periodo_fin}")
+    )
     return RankingResponse(
         total_puntos=1,
         configuracion_version="v1.0-oficial-2026",
         fecha_calculo="2026-11-03T02:00:00Z",
         comuna=comuna,
-        periodo=f"{periodo_inicio}-{periodo_fin}",
+        periodo=periodo_label,
         puntos=[
             PuntoRankingItem(
                 id_punto=101,
@@ -281,30 +289,29 @@ def _fallback_ranking(
 def obtener_ranking(
     db: Session,
     comuna: Optional[str] = "Concepción",
+    anio: Optional[int] = None,
     periodo_inicio: Optional[int] = 2020,
     periodo_fin: Optional[int] = 2025,
     limit: int = 10,
     offset: int = 0,
 ) -> RankingResponse:
-    """Genera el ranking jerarquizado de puntos críticos según el índice de prioridad."""
+    """Genera el ranking jerarquizado de puntos críticos según el índice de prioridad (RF-3, RB-5, RB-7)."""
     comuna_nombre_resp = comuna or "Concepción"
-    p_ini = periodo_inicio or 2020
-    p_fin = periodo_fin or 2025
+    if anio is not None:
+        p_ini = anio
+        p_fin = anio
+        periodo_resp = str(anio)
+    else:
+        p_ini = periodo_inicio or 2020
+        p_fin = periodo_fin or 2025
+        periodo_resp = str(p_ini) if p_ini == p_fin else f"{p_ini}-{p_fin}"
 
     if db is None:
         logger.warning("DB no disponible (db is None). Usando fallback para ranking.")
-        return _fallback_ranking(comuna_nombre_resp, p_ini, p_fin)
+        return _fallback_ranking(comuna_nombre_resp, p_ini, p_fin, periodo_resp)
 
     try:
         filtro_comuna = _normalizar_comuna_filtro(comuna)
-
-        total_puntos = (
-            db.query(func.count(PuntoCritico.id_punto))
-            .join(Comuna, ST_Contains(Comuna.geometry, PuntoCritico.geometry))
-            .filter(Comuna.nombre.ilike(f"%{filtro_comuna}%"))
-            .scalar()
-            or 0
-        )
 
         query = (
             db.query(
@@ -333,49 +340,119 @@ def obtener_ranking(
             )
             .filter(Comuna.nombre.ilike(f"%{filtro_comuna}%"))
             .group_by(PuntoCritico.id_punto, PuntoCritico.geometry, Comuna.nombre)
-            .order_by(desc("total_siniestros"), desc("total_fallecidos"))
-            .offset(offset)
-            .limit(limit)
         )
 
         rows = query.all()
         if not rows:
-            logger.info("Consulta de ranking sin registros para comuna '%s' (%s-%s). Usando fallback.", comuna_nombre_resp, p_ini, p_fin)
-            return _fallback_ranking(comuna_nombre_resp, p_ini, p_fin)
-
-        items: List[PuntoRankingItem] = []
-        for idx, row in enumerate(rows):
-            ip, nivel, s, f, t, c = _calcular_scoring(
-                total_siniestros=int(row.total_siniestros),
-                fallecidos=int(row.total_fallecidos),
-                graves=int(row.total_graves),
-                menos_graves=int(row.total_menos_graves),
-                leves=int(row.total_leves),
+            logger.info(
+                "Consulta de ranking sin registros para comuna '%s' (%s). Retornando resultado vacío legítimo.",
+                comuna_nombre_resp,
+                periodo_resp,
             )
+            return RankingResponse(
+                total_puntos=0,
+                configuracion_version="v1.0-oficial-2026",
+                fecha_calculo="2026-11-09T00:00:00Z",
+                comuna=comuna_nombre_resp,
+                periodo=periodo_resp,
+                puntos=[],
+                puntos_sin_indice=[],
+            )
+
+        candidatos: List[dict] = []
+        puntos_sin_indice: List[PuntoSinIndiceItem] = []
+
+        for row in rows:
+            tot_sin = int(row.total_siniestros or 0)
+            tot_fall = int(row.total_fallecidos or 0)
+            tot_grav = int(row.total_graves or 0)
+            tot_mgrav = int(row.total_menos_graves or 0)
+            tot_lev = int(row.total_leves or 0)
 
             nombre_comuna_disp = (
                 "Concepción"
-                if "concepc" in row.comuna_nombre.lower()
-                else row.comuna_nombre
+                if "concepc" in (row.comuna_nombre or "").lower()
+                else (row.comuna_nombre or comuna_nombre_resp)
             )
+
+            if tot_sin > 0:
+                ip, nivel, s, f, t, c = _calcular_scoring(
+                    total_siniestros=tot_sin,
+                    fallecidos=tot_fall,
+                    graves=tot_grav,
+                    menos_graves=tot_mgrav,
+                    leves=tot_lev,
+                )
+                candidatos.append(
+                    {
+                        "id_punto": row.id_punto,
+                        "nombre_interseccion": f"Intersección #{row.id_punto} ({nombre_comuna_disp})",
+                        "comuna": nombre_comuna_disp,
+                        "lat": round(float(row.lat), 6) if row.lat is not None else 0.0,
+                        "lon": round(float(row.lon), 6) if row.lon is not None else 0.0,
+                        "nivel_riesgo": nivel,
+                        "indice_prioridad": ip,
+                        "severidad_s": s,
+                        "frecuencia_f": f,
+                        "tendencia_t": t,
+                        "contexto_c": c,
+                        "total_siniestros": tot_sin,
+                        "total_fallecidos": tot_fall,
+                        "total_graves": tot_grav,
+                        "estado_indice": "CALCULADO",
+                    }
+                )
+            else:
+                puntos_sin_indice.append(
+                    PuntoSinIndiceItem(
+                        id_punto=row.id_punto,
+                        nombre_interseccion=f"Intersección #{row.id_punto} ({nombre_comuna_disp})",
+                        comuna=nombre_comuna_disp,
+                        latitud=round(float(row.lat), 6) if row.lat is not None else 0.0,
+                        longitud=round(float(row.lon), 6) if row.lon is not None else 0.0,
+                        motivo=f"Sin registros de siniestros en período {periodo_resp}",
+                    )
+                )
+
+        # RB-7: Criterio estricto de ordenación del contrato OpenAPI:
+        # 1. IP descendente
+        # 2. Fallecidos descendente
+        # 3. Graves descendente
+        # 4. Total siniestros descendente
+        # 5. id_punto ascendente
+        candidatos.sort(
+            key=lambda x: (
+                -x["indice_prioridad"],
+                -x["total_fallecidos"],
+                -x["total_graves"],
+                -x["total_siniestros"],
+                x["id_punto"],
+            )
+        )
+
+        total_puntos = len(candidatos)
+        puntos_pagina = candidatos[offset : offset + limit] if offset < total_puntos else []
+
+        items: List[PuntoRankingItem] = []
+        for idx, item in enumerate(puntos_pagina):
             items.append(
                 PuntoRankingItem(
-                    id_punto=row.id_punto,
+                    id_punto=item["id_punto"],
                     posicion_ranking=offset + idx + 1,
-                    nombre_interseccion=f"Intersección #{row.id_punto} ({nombre_comuna_disp})",
-                    comuna=nombre_comuna_disp,
-                    latitud=round(float(row.lat), 6),
-                    longitud=round(float(row.lon), 6),
-                    nivel_riesgo=nivel,
-                    indice_prioridad=ip,
-                    severidad_s=s,
-                    frecuencia_f=f,
-                    tendencia_t=t,
-                    contexto_c=c,
-                    total_siniestros=int(row.total_siniestros),
-                    total_fallecidos=int(row.total_fallecidos),
-                    total_graves=int(row.total_graves),
-                    estado_indice="CALCULADO",
+                    nombre_interseccion=item["nombre_interseccion"],
+                    comuna=item["comuna"],
+                    latitud=item["lat"],
+                    longitud=item["lon"],
+                    nivel_riesgo=item["nivel_riesgo"],
+                    indice_prioridad=item["indice_prioridad"],
+                    severidad_s=item["severidad_s"],
+                    frecuencia_f=item["frecuencia_f"],
+                    tendencia_t=item["tendencia_t"],
+                    contexto_c=item["contexto_c"],
+                    total_siniestros=item["total_siniestros"],
+                    total_fallecidos=item["total_fallecidos"],
+                    total_graves=item["total_graves"],
+                    estado_indice=item["estado_indice"],
                 )
             )
 
@@ -384,13 +461,17 @@ def obtener_ranking(
             configuracion_version="v1.0-oficial-2026",
             fecha_calculo="2026-11-09T00:00:00Z",
             comuna=comuna_nombre_resp,
-            periodo=f"{p_ini}-{p_fin}",
+            periodo=periodo_resp,
             puntos=items,
-            puntos_sin_indice=[],
+            puntos_sin_indice=puntos_sin_indice[:limit] if not items else [],
         )
     except (OperationalError, Exception) as exc:
-        logger.warning("Error en consulta de ranking (%s: %s). Activando fallback resiliente.", type(exc).__name__, exc)
-        return _fallback_ranking(comuna_nombre_resp, p_ini, p_fin)
+        logger.warning(
+            "Error en consulta de ranking (%s: %s). Activando fallback resiliente.",
+            type(exc).__name__,
+            exc,
+        )
+        return _fallback_ranking(comuna_nombre_resp, p_ini, p_fin, periodo_resp)
 
 
 def _fallback_detalle(id_punto: int) -> PuntoCriticoTecnicoDetail:
