@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { SessionProvider } from "../components/Auth/SessionProvider";
+import { DemoBanner } from "../components/UI/DemoBanner";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -11,7 +13,12 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="es-CL">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <SessionProvider>
+          <DemoBanner />
+          {children}
+        </SessionProvider>
+      </body>
     </html>
   );
 }
