@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { initialRankingQuery } from "../../config/ranking";
+import { pointDetailHref, routes } from "../../config/routes";
 import { useRanking } from "../../hooks/useRanking";
 import { useRankingFilters } from "../../hooks/useRankingFilters";
 import { RankingFilters } from "../Filters/RankingFilters";
@@ -23,6 +24,14 @@ export function RankingView() {
 
   function togglePoint(id: number) {
     setSelection((previous) => ({ id: previous?.queryKey === query.queryKey && previous.id === id ? null : id, queryKey: query.queryKey }));
+  }
+
+  function detailHref(id: number) {
+    return pointDetailHref(id, {
+      returnTo: `${routes.ranking}${filters.formKey ? `?${filters.formKey}` : ""}`,
+      rankingPeriod: query.data?.periodo,
+      rankingVersion: query.data?.configuracion_version,
+    });
   }
 
   return (
@@ -52,14 +61,14 @@ export function RankingView() {
               <div><h2 id="titulo-ranking">{offset ? "Resultados comunales" : `Top ${limit} comunal`}</h2><p>{query.data.puntos.length} puntos con índice recibidos · máximo solicitado: {limit}{offset ? ` · desplazamiento solicitado: ${offset}` : ""}</p></div>
               <span className="status-badge"><Icon name="ranking" size={14} /> Prioridad relativa</span>
             </div>
-            <RankingTable points={query.data.puntos} selectedId={selected?.id_punto ?? null} onSelect={togglePoint} />
+            <RankingTable points={query.data.puntos} selectedId={selected?.id_punto ?? null} onSelect={togglePoint} detailHref={detailHref} />
             {query.data.puntos.length > 0 && (
               <p className="sr-only" role="status">{selected
                 ? `Seleccionado: ${selected.nombre_interseccion}. Posición informada: ${selected.posicion_ranking}.`
                 : "Sin punto seleccionado."}</p>
             )}
           </section>
-          <UnscoredPoints points={query.data.puntos_sin_indice} />
+          <UnscoredPoints points={query.data.puntos_sin_indice} detailHref={detailHref} />
         </>
       )}
     </div>

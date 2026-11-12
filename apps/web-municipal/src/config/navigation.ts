@@ -37,13 +37,6 @@ export const municipalNavigation: readonly NavigationGroup[] = [
         href: routes.ranking,
         roles: municipalRoles,
       },
-      {
-        id: "point",
-        label: "Detalle del punto",
-        icon: "point",
-        roles: municipalRoles,
-        unavailableReason: "Requiere un punto · Próximamente",
-      },
     ],
   },
   {

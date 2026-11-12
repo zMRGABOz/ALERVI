@@ -1,15 +1,19 @@
-import type { components, operations } from "../types/api.generated";
-import { apiRequest, type AuthenticatedRequestOptions } from "./api";
+import type { operations } from "../types/api.generated";
+import { ApiError, apiRequest, type AuthenticatedRequestOptions } from "./api";
+import { normalizePointDetail, type PointDetail } from "./point-detail-response";
 
 type PointId =
   operations["getDetallePuntoTecnico"]["parameters"]["path"]["id_punto"];
-export type PointDetail = components["schemas"]["PuntoCriticoTecnicoDetail"];
+export type { PointDetail } from "./point-detail-response";
 
-export function getPointDetail(
+export async function getPointDetail(
   idPunto: PointId,
   options: AuthenticatedRequestOptions,
 ): Promise<PointDetail> {
-  return apiRequest<PointDetail>(
+  if (!Number.isSafeInteger(idPunto) || idPunto < 1) {
+    throw new ApiError("El identificador del punto debe ser un entero positivo válido.", { status: 400, code: "PUNTO_ID_INVALIDO" });
+  }
+  const response = await apiRequest<unknown>(
     `/api/v1/puntos/${encodeURIComponent(String(idPunto))}`,
     {
       auth: "required",
@@ -18,4 +22,5 @@ export function getPointDetail(
       timeoutMs: options.timeoutMs,
     },
   );
+  return normalizePointDetail(response, idPunto);
 }

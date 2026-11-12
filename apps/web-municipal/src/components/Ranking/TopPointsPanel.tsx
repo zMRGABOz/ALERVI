@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { initialRankingQuery } from "../../config/ranking";
 import { riskLevels } from "../../config/risk-levels";
-import { routes } from "../../config/routes";
+import { pointDetailHref, routes } from "../../config/routes";
 import type { useRanking } from "../../hooks/useRanking";
 import { QueryState } from "../UI/QueryState";
 import { RiskBadge } from "../UI/RiskBadge";
@@ -41,7 +41,7 @@ export function TopPointsPanel({ query, selectedId, onSelect }: TopPointsPanelPr
           {query.data.puntos.length ? (
             <ul className="top-point-list" aria-label="Prioridades del ranking municipal">
               {query.data.puntos.map((point) => (
-                <li key={point.id_punto}>
+                <li key={point.id_punto} className="top-point-card" data-selected={point.id_punto === selectedId}>
                   <button
                     type="button"
                     className="top-point-button"
@@ -56,6 +56,7 @@ export function TopPointsPanel({ query, selectedId, onSelect }: TopPointsPanelPr
                     </span>
                     <span className="top-point-index">{indexFormatter.format(point.indice_prioridad)}<span>/ 100</span></span>
                   </button>
+                  <Link href={pointDetailHref(point.id_punto, { returnTo: routes.summary, rankingPeriod: query.data.periodo, rankingVersion: query.data.configuracion_version })} className="point-detail-action top-point-detail-link" aria-label={`Ver detalle técnico de ${point.nombre_interseccion}`} title={`Ver detalle técnico de ${point.nombre_interseccion}`}><span aria-hidden="true">→</span></Link>
                 </li>
               ))}
             </ul>
