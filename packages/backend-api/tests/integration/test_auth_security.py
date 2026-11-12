@@ -55,10 +55,6 @@ def test_login_payload_invalido_rechazado(client: TestClient):
 
 
 @pytest.mark.integration
-@pytest.mark.xfail(
-    strict=False,
-    reason="Defecto D-3 / TC-30: Backend stub acepta cualquier password; pendiente implementación por Marcos",
-)
 def test_login_password_incorrecto_rechazado(client: TestClient):
     """TC-30: Verifica que credenciales erróneas sean rechazadas con HTTP 401."""
     payload = {
@@ -70,10 +66,6 @@ def test_login_password_incorrecto_rechazado(client: TestClient):
 
 
 @pytest.mark.integration
-@pytest.mark.xfail(
-    strict=False,
-    reason="Defecto D-1 / TC-31: Endpoints protegidos aún no tienen middleware de autenticación inyectado; pendiente implementación por Marcos",
-)
 def test_tc31_rutas_protegidas_sin_token_rechazan_401_o_403(client: TestClient):
     """TC-31: Sesión ausente en endpoints protegidos debe responder con HTTP 401 o 403."""
     endpoints_protegidos = [

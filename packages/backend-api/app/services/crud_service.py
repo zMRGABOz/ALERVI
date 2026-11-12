@@ -7,19 +7,9 @@ import logging
 from datetime import date, datetime, timezone
 from typing import List, Optional
 
-logger = logging.getLogger("alervi.crud_service")
+from fastapi import HTTPException, status
 
-try:
-    from sqlalchemy import desc
-    from sqlalchemy.exc import OperationalError
-    from sqlalchemy.orm import Session
-except ImportError:
-    Session = object  # type: ignore
-
-    class OperationalError(Exception):  # type: ignore
-        pass
-
-
+from app.core.security import create_access_token, verify_password
 from app.models.db_models import (
     EventoAuditoria,
     FactorRiesgo,
@@ -50,6 +40,18 @@ from app.schemas.api_models import (
     UsuarioUpdateRequest,
 )
 
+try:
+    from sqlalchemy import desc
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.orm import Session
+except ImportError:
+    Session = object  # type: ignore
+
+    class OperationalError(Exception):  # type: ignore
+        pass
+
+logger = logging.getLogger("alervi.crud_service")
+
 # Estado en memoria para ponderaciones versionadas
 _PONDERACIONES_VIGENTES = {
     "version": "v1.0-oficial-2026",
@@ -68,8 +70,9 @@ _PONDERACIONES_VIGENTES = {
 # AUTENTICACIÓN Y USUARIOS
 # ==============================================================================
 def authenticate_user(db: Session, payload: LoginRequest) -> LoginResponse:
-    """Valida credenciales de funcionario municipal."""
-    correo_req = (payload.correo or "admin@alervi.test").strip().lower()
+    """Valida credenciales de funcionario municipal (RF-9, TC-30)."""
+    correo_req = (payload.correo or "").strip().lower()
+    password_req = payload.password or ""
 
     if db is not None:
         try:
@@ -79,8 +82,24 @@ def authenticate_user(db: Session, payload: LoginRequest) -> LoginResponse:
                 .first()
             )
             if user:
+                if not verify_password(password_req, user.hash_clave):
+                    logger.warning("Contraseña incorrecta para usuario '%s'.", correo_req)
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Credenciales incorrectas: correo o contraseña inválida",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+
+                token = create_access_token(
+                    {
+                        "sub": str(user.id_usuario),
+                        "id_usuario": user.id_usuario,
+                        "correo": user.correo,
+                        "rol": user.rol,
+                    }
+                )
                 return LoginResponse(
-                    access_token=f"jwt.{user.id_usuario}.alervi.valid.token",
+                    access_token=token,
                     token_type="bearer",
                     expires_in=28800,
                     mfa_requerido=False,
@@ -92,22 +111,50 @@ def authenticate_user(db: Session, payload: LoginRequest) -> LoginResponse:
                         fecha_creacion=None,
                     ),
                 )
-            logger.info("Usuario '%s' no encontrado en BD. Usando fallback de autenticación.", correo_req)
-        except (OperationalError, Exception) as exc:
-            logger.warning("Error al autenticar usuario en BD (%s: %s). Usando fallback de desarrollo.", type(exc).__name__, exc)
-    else:
-        logger.warning("DB no disponible (db is None). Usando fallback de autenticación para '%s'.", correo_req)
 
-    # Fallback si no hay conexión o usuario no encontrado en mock
+            logger.info("Usuario '%s' no encontrado en BD.", correo_req)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Credenciales incorrectas: correo o contraseña inválida",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        except HTTPException:
+            raise
+        except (OperationalError, Exception) as exc:
+            logger.warning(
+                "Error en consulta de usuario en BD (%s: %s). Verificando en modo contingencia.",
+                type(exc).__name__,
+                exc,
+            )
+
+    # Modo contingencia / pruebas sin BD (db is None o error)
+    if not verify_password(password_req, "$2b$12$FftZVwmTG1VxkseqE1Wy.OT1qUesa6jeaq4Sb.IsJAzKSMhV2NtYO"):
+        logger.warning("Credenciales incorrectas en fallback para '%s'.", correo_req)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales incorrectas: correo o contraseña inválida",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    uid = 1 if "admin" in correo_req else 2
+    rol = "administrador" if "admin" in correo_req else "inspector"
+    token = create_access_token(
+        {
+            "sub": str(uid),
+            "id_usuario": uid,
+            "correo": correo_req,
+            "rol": rol,
+        }
+    )
     return LoginResponse(
-        access_token="jwt.dev.stub.alervi.token",
+        access_token=token,
         token_type="bearer",
         expires_in=28800,
         mfa_requerido=False,
         usuario=UsuarioResponse(
-            id_usuario=1 if "admin" in correo_req else 2,
+            id_usuario=uid,
             correo=correo_req,
-            rol="administrador" if "admin" in correo_req else "inspector",
+            rol=rol,
             activo=True,
             fecha_creacion=None,
         ),

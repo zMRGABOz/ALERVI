@@ -26,6 +26,7 @@ except ImportError:
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.security import get_current_user, require_admin
 from app.schemas.api_models import (
     AlertCheckRequest,
     AlertCheckResponse,
@@ -133,6 +134,7 @@ async def list_usuarios(
     limit: Optional[int] = Query(20, description="Límite de registros"),
     offset: Optional[int] = Query(0, description="Desplazamiento"),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(require_admin),
 ):
     """Administra cuentas de usuario y asignación de roles. Exclusivo Administrador (RF-9)."""
     return crud_service.listar_usuarios(
@@ -147,7 +149,11 @@ async def list_usuarios(
     tags=["Gestión de Usuarios"],
     summary="Crear una nueva cuenta de usuario municipal",
 )
-async def create_usuario(payload: UsuarioCreateRequest, db: Session = Depends(get_db)):
+async def create_usuario(
+    payload: UsuarioCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_admin),
+):
     """Registra una nueva cuenta de funcionario con rol Inspector o Administrador (RF-9)."""
     return crud_service.crear_usuario(db, payload)
 
@@ -159,7 +165,11 @@ async def create_usuario(payload: UsuarioCreateRequest, db: Session = Depends(ge
     tags=["Gestión de Usuarios"],
     summary="Consultar detalle de un usuario municipal",
 )
-async def get_usuario_by_id(id_usuario: int = Path(...), db: Session = Depends(get_db)):
+async def get_usuario_by_id(
+    id_usuario: int = Path(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_admin),
+):
     """Consulta técnica de una cuenta de usuario municipal por ID."""
     u = crud_service.obtener_usuario_por_id(db, id_usuario)
     if not u:
@@ -180,6 +190,7 @@ async def update_usuario(
     id_usuario: int = Path(...),
     payload: UsuarioUpdateRequest = ...,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(require_admin),
 ):
     """Actualiza rol, clave o estado activo de un funcionario (RF-9)."""
     u = crud_service.actualizar_usuario(db, id_usuario, payload)
@@ -406,6 +417,7 @@ async def update_ponderaciones(
 async def create_ficha_inspeccion(
     payload: FichaInspeccionCreateRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Crea una ficha de inspección asociada a un punto con factores y observaciones (RF-5)."""
     return crud_service.crear_ficha_inspeccion(db, payload)
@@ -442,6 +454,7 @@ async def update_ficha_inspeccion(
     id_ficha: int = Path(...),
     payload: FichaInspeccionUpdateRequest = ...,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Actualiza observaciones de una ficha existente de autoría propia (RF-7, RB-11)."""
     f = crud_service.actualizar_ficha_inspeccion(db, id_ficha, payload)
@@ -463,6 +476,7 @@ async def update_ficha_inspeccion(
 async def upload_foto_inspeccion(
     id_ficha: int = Path(...),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Adjunta evidencia fotográfica a una ficha de inspección (RF-5, RB-10, RNF-S-7)."""
     return crud_service.agregar_fotografia_ficha(db, id_ficha)
@@ -517,6 +531,7 @@ async def get_eventos_auditoria(
     limit: Optional[int] = Query(50, description="Límite de registros"),
     offset: Optional[int] = Query(0, description="Desplazamiento"),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(require_admin),
 ):
     """Consulta el registro y trazabilidad de eventos del sistema. Exclusivo Administrador (RNF-S-4)."""
     return crud_service.listar_eventos_auditoria(

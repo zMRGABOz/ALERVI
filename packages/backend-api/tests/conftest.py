@@ -27,8 +27,53 @@ def auth_headers(client: TestClient) -> dict:
     }
     response = client.post("/api/v1/auth/login", json=payload)
     if response.status_code != 200:
+        # Intento de restauración si una prueba anterior mutó el estado en BD
+        try:
+            from app.core.database import SessionLocal
+            from app.models.db_models import Usuario
+
+            with SessionLocal() as db:
+                user = db.query(Usuario).filter(Usuario.correo == "inspector@alervi.test").first()
+                if user and not user.activo:
+                    user.activo = True
+                    db.commit()
+            response = client.post("/api/v1/auth/login", json=payload)
+        except Exception:
+            pass
+
+    if response.status_code != 200:
         pytest.fail(
             f"No fue posible autenticar inspector para auth_headers: HTTP {response.status_code}"
+        )
+    token = response.json().get("access_token")
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def admin_auth_headers(client: TestClient) -> dict:
+    """Fixture que autentica al usuario administrador de prueba y retorna los headers con Bearer JWT."""
+    payload = {
+        "correo": "admin@alervi.test",
+        "password": "Dev-2026-ALERVI",
+    }
+    response = client.post("/api/v1/auth/login", json=payload)
+    if response.status_code != 200:
+        try:
+            from app.core.database import SessionLocal
+            from app.models.db_models import Usuario
+
+            with SessionLocal() as db:
+                user = db.query(Usuario).filter(Usuario.correo == "admin@alervi.test").first()
+                if user and not user.activo:
+                    user.activo = True
+                    db.commit()
+            response = client.post("/api/v1/auth/login", json=payload)
+        except Exception:
+            pass
+
+    if response.status_code != 200:
+        pytest.fail(
+            f"No fue posible autenticar admin para admin_auth_headers: HTTP {response.status_code}"
         )
     token = response.json().get("access_token")
     return {"Authorization": f"Bearer {token}"}

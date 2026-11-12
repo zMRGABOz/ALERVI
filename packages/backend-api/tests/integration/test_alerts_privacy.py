@@ -16,7 +16,10 @@ from fastapi.testclient import TestClient
 @pytest.mark.integration
 @pytest.mark.privacy
 def test_rnf_s_8_alerts_telemetry_not_persisted_in_db_and_logs(
-    client: TestClient, sample_telemetry_payload: dict, caplog: pytest.LogCaptureFixture
+    client: TestClient,
+    sample_telemetry_payload: dict,
+    caplog: pytest.LogCaptureFixture,
+    admin_auth_headers: dict,
 ):
     """
     RNF-S-8 / TC-28: Verifica que enviar telemetría a /api/v1/alerts no inserte registros
@@ -26,7 +29,7 @@ def test_rnf_s_8_alerts_telemetry_not_persisted_in_db_and_logs(
     lon_str = str(sample_telemetry_payload["longitude"])
 
     # 1. Obtener estado previo de la bitácora de auditoría
-    res_audit_before = client.get("/api/v1/auditoria")
+    res_audit_before = client.get("/api/v1/auditoria", headers=admin_auth_headers)
     assert res_audit_before.status_code == 200
 
     # 2. Enviar telemetría vehicular capturando logs con caplog
@@ -47,7 +50,7 @@ def test_rnf_s_8_alerts_telemetry_not_persisted_in_db_and_logs(
     )
 
     # 4. Verificar que la bitácora de auditoría tampoco haya registrado las coordenadas GPS
-    res_audit_after = client.get("/api/v1/auditoria")
+    res_audit_after = client.get("/api/v1/auditoria", headers=admin_auth_headers)
     assert res_audit_after.status_code == 200
     eventos_after = res_audit_after.json().get("eventos", [])
 

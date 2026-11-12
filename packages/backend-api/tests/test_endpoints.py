@@ -18,6 +18,8 @@ Verifica el cumplimiento de todos los endpoints y contratos:
 14. GET  /api/v1/auditoria
 """
 
+import uuid
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -76,34 +78,38 @@ def test_auth_login():
     assert data["usuario"]["rol"] == "inspector"
 
 
-def test_usuarios_crud():
+def test_usuarios_crud(admin_auth_headers: dict):
     """Verifica gestion de usuarios (GET, POST, PATCH /api/v1/usuarios)."""
     # Listar
-    res_list = client.get("/api/v1/usuarios")
+    res_list = client.get("/api/v1/usuarios", headers=admin_auth_headers)
     assert res_list.status_code == 200
     assert res_list.json()["total"] >= 1
 
     # Crear
+    unique_correo = f"nuevo_{uuid.uuid4().hex[:8]}@alervi.test"
     res_create = client.post(
         "/api/v1/usuarios",
         json={
-            "correo": "nuevo@alervi.test",
+            "correo": unique_correo,
             "clave": "PasswordSegura2026*",
             "rol": "inspector",
         },
+        headers=admin_auth_headers,
     )
     assert res_create.status_code == 201
-    assert res_create.json()["correo"] == "nuevo@alervi.test"
+    assert res_create.json()["correo"] == unique_correo
+    created_id = res_create.json()["id_usuario"]
 
     # Detalle
-    res_get = client.get("/api/v1/usuarios/2")
+    res_get = client.get(f"/api/v1/usuarios/{created_id}", headers=admin_auth_headers)
     assert res_get.status_code == 200
-    assert res_get.json()["id_usuario"] == 2
+    assert res_get.json()["id_usuario"] == created_id
 
-    # Modificar
+    # Modificar (modifica el usuario recién creado para no contaminar al inspector seed)
     res_patch = client.patch(
-        "/api/v1/usuarios/2",
+        f"/api/v1/usuarios/{created_id}",
         json={"activo": False},
+        headers=admin_auth_headers,
     )
     assert res_patch.status_code == 200
     assert not res_patch.json()["activo"]
@@ -220,7 +226,7 @@ def test_factores_y_ponderaciones():
     assert res_update_pond.json()["w_severidad"] == 0.40
 
 
-def test_inspections_y_fotos():
+def test_inspections_y_fotos(auth_headers: dict):
     """Verifica registro, detalle, edicion y fotos de inspecciones."""
     # Crear ficha valida
     payload = {
@@ -229,7 +235,7 @@ def test_inspections_y_fotos():
         "notas": "Inspección técnica en terreno.",
         "factores_riesgo_ids": [1],
     }
-    res_create = client.post("/api/v1/inspections", json=payload)
+    res_create = client.post("/api/v1/inspections", json=payload, headers=auth_headers)
     assert res_create.status_code == 201
     id_ficha = res_create.json()["id_ficha"]
 
@@ -237,6 +243,7 @@ def test_inspections_y_fotos():
     res_invalid = client.post(
         "/api/v1/inspections",
         json={"id_punto": 101, "fecha_visita": "2026-11-02", "notas": "X" * 501},
+        headers=auth_headers,
     )
     assert res_invalid.status_code == 422
 
@@ -248,11 +255,12 @@ def test_inspections_y_fotos():
     res_patch = client.patch(
         f"/api/v1/inspections/{id_ficha}",
         json={"notas": "Notas actualizadas del inspector."},
+        headers=auth_headers,
     )
     assert res_patch.status_code == 200
 
     # Adjuntar foto (POST /inspections/{id}/fotos)
-    res_foto = client.post(f"/api/v1/inspections/{id_ficha}/fotos")
+    res_foto = client.post(f"/api/v1/inspections/{id_ficha}/fotos", headers=auth_headers)
     assert res_foto.status_code == 201
     assert "ruta" in res_foto.json()
 
@@ -280,9 +288,9 @@ def test_alerts_evaluacion():
     assert data["telemetria_status"] == "EVALUADO_CON_ALERTA"
 
 
-def test_auditoria():
+def test_auditoria(admin_auth_headers: dict):
     """Verifica consulta de bitacora inmutable (GET /api/v1/auditoria)."""
-    response = client.get("/api/v1/auditoria")
+    response = client.get("/api/v1/auditoria", headers=admin_auth_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["total"] >= 1

@@ -10,7 +10,30 @@ Provee funciones para:
 import logging
 from typing import List, Optional, Tuple
 
-logger = logging.getLogger("alervi.spatial_service")
+from app.models.db_models import (
+    Comuna,
+    ElementoUrbano,
+    FichaInspeccion,
+    PuntoCritico,
+    Registro,
+)
+from app.schemas.api_models import (
+    AlertCheckRequest,
+    AlertCheckResponse,
+    AlertDetail,
+    DesgloseFactoresScoring,
+    ElementoUrbanoCercano,
+    EntornoUrbanoContexto,
+    GeoJsonFeature,
+    GeoJsonFeatureCollection,
+    GeoJsonPoint,
+    HistoricoSiniestrosAnual,
+    PuntoCriticoProperties,
+    PuntoCriticoTecnicoDetail,
+    PuntoRankingItem,
+    PuntoSinIndiceItem,
+    RankingResponse,
+)
 
 try:
     from geoalchemy2 import Geography
@@ -35,30 +58,7 @@ except ImportError:
     class OperationalError(Exception):  # type: ignore
         pass
 
-
-from app.models.db_models import (
-    Comuna,
-    ElementoUrbano,
-    FichaInspeccion,
-    PuntoCritico,
-    Registro,
-)
-from app.schemas.api_models import (
-    AlertCheckRequest,
-    AlertCheckResponse,
-    AlertDetail,
-    DesgloseFactoresScoring,
-    ElementoUrbanoCercano,
-    EntornoUrbanoContexto,
-    GeoJsonFeature,
-    GeoJsonFeatureCollection,
-    GeoJsonPoint,
-    HistoricoSiniestrosAnual,
-    PuntoCriticoProperties,
-    PuntoCriticoTecnicoDetail,
-    PuntoRankingItem,
-    RankingResponse,
-)
+logger = logging.getLogger("alervi.spatial_service")
 
 
 def _normalizar_comuna_filtro(comuna: Optional[str]) -> str:
