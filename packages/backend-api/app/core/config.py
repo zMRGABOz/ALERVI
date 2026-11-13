@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List
 
 try:
+    from pydantic import field_validator
     from pydantic_settings import BaseSettings, SettingsConfigDict
 except ImportError:
     from pydantic import (
@@ -16,6 +17,7 @@ except ImportError:
     )
 
     SettingsConfigDict = None
+    field_validator = None
 
 
 def _load_env_fallback() -> None:
@@ -36,7 +38,7 @@ def _load_env_fallback() -> None:
                             continue
                         key, val = line.split("=", 1)
                         key = key.strip()
-                        val = val.strip().strip("'\"")
+                        val = val.split("#")[0].strip().strip("'\"")
                         if key and key not in os.environ:
                             os.environ[key] = val
             except Exception:
@@ -55,6 +57,32 @@ class Settings(BaseSettings):
             env_file_encoding="utf-8",
             extra="ignore",
         )
+
+    if field_validator is not None:
+
+        @field_validator(
+            "db_use_null_pool", "db_ssl_require", "backend_debug", mode="before"
+        )
+        @classmethod
+        def _parse_bool_with_comments(cls, v):
+            if isinstance(v, str):
+                v = v.split("#")[0].strip()
+                return v.lower() in ("1", "true", "yes", "t")
+            return v
+
+        @field_validator(
+            "db_pool_size",
+            "db_max_overflow",
+            "db_pool_timeout",
+            "db_pool_recycle",
+            mode="before",
+        )
+        @classmethod
+        def _parse_int_with_comments(cls, v):
+            if isinstance(v, str):
+                v = v.split("#")[0].strip()
+                return int(v)
+            return v
 
     # -- Base de datos --
     database_url: str = os.getenv(
