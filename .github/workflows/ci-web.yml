@@ -45,5 +45,8 @@ jobs:
       - name: Check TypeScript types
         run: npm run typecheck
 
+      - name: Run Unit Tests (Jest) - RNF-P-4, RNF-M-1
+        run: npm run test:ci
+
       - name: Build Next.js - RNF-P-4
         run: npm run build
