@@ -52,17 +52,10 @@ export const municipalNavigation: readonly NavigationGroup[] = [
     items: [
       {
         id: "inspection",
-        label: "Nueva inspección",
+        label: "Ficha de terreno",
         icon: "inspection",
-        roles: ["inspector"],
-        unavailableReason: "Requiere un punto · Próximamente",
-      },
-      {
-        id: "history",
-        label: "Historial de fichas",
-        icon: "history",
         roles: municipalRoles,
-        unavailableReason: "Requiere un punto · Próximamente",
+        href: routes.terreno,
       },
     ],
   },

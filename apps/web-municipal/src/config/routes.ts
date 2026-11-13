@@ -3,4 +3,5 @@ export const routes = {
   map: "/mapa",
   summary: "/resumen",
   ranking: "/ranking",
+  terreno: "/terreno",
 } as const;
