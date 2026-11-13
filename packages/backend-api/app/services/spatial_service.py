@@ -8,6 +8,7 @@ Provee funciones para:
 - Evaluación en tiempo real de telemetría para alertas de proximidad (RF-8).
 """
 
+import math
 from typing import List, Optional, Tuple
 
 try:
@@ -637,10 +638,11 @@ def evaluar_alerta_proximidad(
             vel_kmh = getattr(payload, "velocidad_kmh", 0.0) or 0.0
             vel_mps = vel_kmh * (1000.0 / 3600.0)
 
-        if vel_kmh < 5.0:
+        # RB-13: Supresión ante velocidad baja (< 1.38 m/s o < 5 km/h)
+        if vel_kmh < 5.0 or vel_mps < 1.38:
             return AlertCheckResponse(
                 alerta_activa=False,
-                telemetria_status="SUPRIMIDA_VELOCIDAD",
+                telemetria_status="SUPRIMIDO_VELOCIDAD_BAJA",
                 alerta=None,
             )
 
@@ -648,7 +650,7 @@ def evaluar_alerta_proximidad(
         user_geog = cast(user_pt, Geography)
         punto_geog = cast(PuntoCritico.geometry, Geography)
 
-        cercano = (
+        cercanos = (
             db.query(
                 PuntoCritico.id_punto,
                 ST_Distance(punto_geog, user_geog).label("distancia_m"),
@@ -663,33 +665,69 @@ def evaluar_alerta_proximidad(
             .filter(ST_DWithin(punto_geog, user_geog, 200.0))
             .group_by(PuntoCritico.id_punto, PuntoCritico.geometry)
             .order_by("distancia_m")
-            .first()
+            .all()
         )
 
-        if not cercano:
+        if not cercanos:
             return AlertCheckResponse(
                 alerta_activa=False,
-                telemetria_status="EVALUADO_SIN_ALERTA",
+                telemetria_status="SIN_PUNTOS_EN_RANGO",
                 alerta=None,
             )
 
-        dist_m = round(float(cercano.distancia_m), 1)
-        ttc_seg = round(dist_m / vel_mps, 1) if vel_mps > 0 else None
+        heading = getattr(payload, "heading_degrees", None)
+        candidatos = []
+        hubo_convergente = False
 
-        es_critico = cercano.fallecidos > 0 or cercano.total_siniestros >= 50
+        for cercano in cercanos:
+            dist_m = round(float(cercano.distancia_m), 1)
+            ttc_seg = round(dist_m / vel_mps, 1) if vel_mps > 0 else 999.0
+
+            if heading is not None:
+                rumbo_rad = math.radians(heading)
+                vx = vel_mps * math.sin(rumbo_rad)
+                vy = vel_mps * math.cos(rumbo_rad)
+                d_lat_m = (cercano.lat - lat) * 111320.0
+                d_lon_m = (cercano.lon - lon) * (111320.0 * math.cos(math.radians(lat)))
+                prod_escalar = vx * d_lon_m + vy * d_lat_m
+                if prod_escalar <= 0.001:
+                    continue
+                hubo_convergente = True
+            else:
+                hubo_convergente = True
+
+            if ttc_seg <= 12.0:
+                candidatos.append((ttc_seg, dist_m, cercano))
+
+        if not candidatos:
+            motivo = (
+                "SUPRIMIDO_TTC_MAYOR_12S"
+                if hubo_convergente
+                else "SUPRIMIDO_TRAYECTORIA_DIVERGENTE"
+            )
+            return AlertCheckResponse(
+                alerta_activa=False,
+                telemetria_status=motivo,
+                alerta=None,
+            )
+
+        candidatos.sort(key=lambda c: (c[0], c[2].id_punto))
+        mejor_ttc, mejor_dist, elegido = candidatos[0]
+
+        es_critico = elegido.fallecidos > 0 or elegido.total_siniestros >= 50
         nivel = "CRITICO" if es_critico else "ALTO"
-        patron = "BEEP_CRITICO" if es_critico else "BEEP_PRECAUCION"
+        patron = "BEEP_URGENTE" if es_critico else "BEEP_PRECAUCION"
 
         return AlertCheckResponse(
             alerta_activa=True,
             telemetria_status="EVALUADO_CON_ALERTA",
             alerta=AlertDetail(
-                id_punto=cercano.id_punto,
-                nombre_interseccion=f"Punto Crítico #{cercano.id_punto} (Concepción)",
+                id_punto=elegido.id_punto,
+                nombre_interseccion=f"Punto Crítico #{elegido.id_punto} (Concepción)",
                 nivel_riesgo=nivel,
-                distancia_m=dist_m,
-                ttc_segundos=ttc_seg,
-                mensaje_visual=f"⚠️ Zona de Riesgo a {int(dist_m)} m: Punto #{cercano.id_punto}",
+                distancia_m=mejor_dist,
+                ttc_segundos=mejor_ttc,
+                mensaje_visual=f"⚠️ Zona de Riesgo a {int(mejor_dist)} m: Punto #{elegido.id_punto}",
                 patron_sonoro=patron,
                 instruccion_seguridad="Reduzca velocidad y preste atención al cruce",
             ),

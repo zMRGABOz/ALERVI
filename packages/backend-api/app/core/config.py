@@ -20,11 +20,12 @@ except ImportError:
 
 def _load_env_fallback() -> None:
     """Carga variables desde archivos .env a os.environ si no estan cargadas ya."""
-    candidates = [
-        Path.cwd() / ".env",
-        Path(__file__).resolve().parents[2] / ".env",
-        Path(__file__).resolve().parents[4] / ".env",
-    ]
+    parents = Path(__file__).resolve().parents
+    candidates = [Path.cwd() / ".env"]
+    if len(parents) > 2:
+        candidates.append(parents[2] / ".env")
+    if len(parents) > 4:
+        candidates.append(parents[4] / ".env")
     for env_path in candidates:
         if env_path.is_file():
             try:

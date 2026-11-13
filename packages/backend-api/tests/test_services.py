@@ -259,7 +259,7 @@ def test_evaluar_alerta_proximidad_cinematica():
     )
     res_lenta = spatial_service.evaluar_alerta_proximidad(mock_db, req_lenta)
     assert res_lenta.alerta_activa is False
-    assert res_lenta.telemetria_status == "SUPRIMIDA_VELOCIDAD"
+    assert res_lenta.telemetria_status == "SUPRIMIDO_VELOCIDAD_BAJA"
 
     # 2. Mock de punto cercano dentro de 200m
     mock_row = MagicMock()
@@ -270,7 +270,9 @@ def test_evaluar_alerta_proximidad_cinematica():
     mock_row.fallecidos = 2
     mock_row.total_siniestros = 30
 
-    mock_db.query.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.order_by.return_value.first.return_value = mock_row
+    mock_db.query.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.order_by.return_value.all.return_value = [
+        mock_row
+    ]
 
     req_alerta = AlertCheckRequest(
         session_id="test-session-2",
@@ -284,13 +286,13 @@ def test_evaluar_alerta_proximidad_cinematica():
     assert res_activa.alerta_activa is True
     assert res_activa.alerta.id_punto == 101
     assert res_activa.alerta.nivel_riesgo == "CRITICO"
-    assert res_activa.alerta.patron_sonoro == "BEEP_CRITICO"
+    assert res_activa.alerta.patron_sonoro == "BEEP_URGENTE"
 
     # 3. Punto lejano (no encontrado en 200m)
-    mock_db.query.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.order_by.return_value.first.return_value = None
+    mock_db.query.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.order_by.return_value.all.return_value = []
     res_lejos = spatial_service.evaluar_alerta_proximidad(mock_db, req_alerta)
     assert res_lejos.alerta_activa is False
-    assert res_lejos.telemetria_status == "EVALUADO_SIN_ALERTA"
+    assert res_lejos.telemetria_status == "SIN_PUNTOS_EN_RANGO"
 
     # 4. Fallback con db=None
     fb = spatial_service.evaluar_alerta_proximidad(None, req_alerta)
