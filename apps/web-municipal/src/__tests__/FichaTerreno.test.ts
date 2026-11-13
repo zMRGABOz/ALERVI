@@ -1,9 +1,8 @@
 /**
- * Suite de pruebas unitarias para el módulo FichaTerreno (TC-14, TC-15, TC-16, TC-18, TC-20, TC-21).
+ * Suite de pruebas unitarias (Jest) para el módulo FichaTerreno (TC-14, TC-15, TC-16, TC-18, TC-20, TC-21).
  */
 
-import assert from "node:assert/strict";
-import { describe, test } from "node:test";
+import { describe, expect, test } from "@jest/globals";
 import { obtenerFechaHoyLocal } from "../components/FichaTerreno/FormFicha";
 import {
   ordenarFichasCronologicamente,
@@ -15,7 +14,7 @@ import type { FichaInspeccion } from "../components/FichaTerreno/types";
 describe("FichaTerreno — Validaciones y Reglas de Negocio", () => {
   test("TC-14: obtenerFechaHoyLocal retorna formato YYYY-MM-DD local válido", () => {
     const fecha = obtenerFechaHoyLocal();
-    assert.match(fecha, /^\d{4}-\d{2}-\d{2}$/);
+    expect(fecha).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   test("TC-18: ordenarFichasCronologicamente ordena de más reciente a más antigua según fecha_registro", () => {
@@ -53,10 +52,7 @@ describe("FichaTerreno — Validaciones y Reglas de Negocio", () => {
     ];
 
     const ordenadas = ordenarFichasCronologicamente(fichasDesordenadas);
-    assert.deepEqual(
-      ordenadas.map((f) => f.id_ficha),
-      [3, 2, 1]
-    );
+    expect(ordenadas.map((f) => f.id_ficha)).toEqual([3, 2, 1]);
   });
 
   test("TC-18: desempate por id_ficha descendente cuando fecha_registro no está presente y fecha_visita coincide", () => {
@@ -80,39 +76,37 @@ describe("FichaTerreno — Validaciones y Reglas de Negocio", () => {
     ];
 
     const ordenadas = ordenarFichasCronologicamente(fichasMismaFecha);
-    assert.equal(ordenadas[0].id_ficha, 12);
-    assert.equal(ordenadas[1].id_ficha, 10);
+    expect(ordenadas[0].id_ficha).toBe(12);
+    expect(ordenadas[1].id_ficha).toBe(10);
   });
 
   test("TC-20 y TC-21: puedeEditarFicha permite edición solo al Inspector autor y deniega a otro Inspector o Administrador", () => {
     const fichaInspector2 = { id_inspector: 2 };
 
     // TC-20: Inspector autor (id = 2)
-    assert.equal(puedeEditarFicha(fichaInspector2, "inspector", 2), true);
+    expect(puedeEditarFicha(fichaInspector2, "inspector", 2)).toBe(true);
 
     // TC-21: Otro Inspector (id = 5)
-    assert.equal(puedeEditarFicha(fichaInspector2, "inspector", 5), false);
+    expect(puedeEditarFicha(fichaInspector2, "inspector", 5)).toBe(false);
 
     // RB-11: Administrador (aunque coincida ID)
-    assert.equal(puedeEditarFicha(fichaInspector2, "administrador", 2), false);
+    expect(puedeEditarFicha(fichaInspector2, "administrador", 2)).toBe(false);
   });
 
   test("TC-15 y TC-16: validarSeleccionFotografias controla máximo 3 fotos, formato JPEG/PNG y peso <= 5 MB", () => {
     const fotoValida = { name: "perspectiva_conductor.jpg", type: "image/jpeg", size: 1024 * 500 };
 
     // TC-15: Archivo válido dentro del límite
-    assert.equal(validarSeleccionFotografias(2, [fotoValida]), null);
+    expect(validarSeleccionFotografias(2, [fotoValida])).toBeNull();
 
     // TC-16: Cuarta fotografía rechazada con mensaje exacto del SRS
-    assert.equal(
-      validarSeleccionFotografias(3, [fotoValida]),
+    expect(validarSeleccionFotografias(3, [fotoValida])).toBe(
       "La ficha admite un máximo de 3 fotografías"
     );
 
     // TC-16: Formato inválido (PDF / GIF)
     const archivoInvalido = { name: "documento.pdf", type: "application/pdf", size: 1024 };
-    assert.match(
-      validarSeleccionFotografias(0, [archivoInvalido]) || "",
+    expect(validarSeleccionFotografias(0, [archivoInvalido]) || "").toMatch(
       /Solo se admiten formatos JPEG o PNG/
     );
 
@@ -122,8 +116,7 @@ describe("FichaTerreno — Validaciones y Reglas de Negocio", () => {
       type: "image/png",
       size: 6 * 1024 * 1024,
     };
-    assert.match(
-      validarSeleccionFotografias(0, [archivoPesado]) || "",
+    expect(validarSeleccionFotografias(0, [archivoPesado]) || "").toMatch(
       /excede el límite de 5 MB/
     );
   });
