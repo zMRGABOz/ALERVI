@@ -186,6 +186,71 @@ export function createMockTransport({
   }
   let weightsVersion = 1;
   let weights = structuredClone(demoWeights);
+  let nextFichaId = 10;
+  let nextFotoId = 10;
+  const fichasStore = [
+    {
+      id_ficha: 3,
+      id_punto: 1,
+      nombre_interseccion: "Av. Paicaví con Av. Los Carrera",
+      id_inspector: 9001,
+      correo_inspector: "inspector@demo.alervi.test",
+      fecha_visita: "2026-11-05",
+      fecha_registro: "2026-11-05T15:30:00Z",
+      notas: "Visibilidad conductor: desde pista derecha se constata punto ciego por paradero de locomoción colectiva en hora punta mañana.\nMitigación sugerida: evaluar retranqueo de paradero y vallas peatonales.",
+      factores_riesgo: [
+        { id_factor: 1, nombre: "Falta de demarcación de cruce peatonal", activo: true },
+        { id_factor: 2, nombre: "Visibilidad reducida por obstrucciones", activo: true }
+      ],
+      fotografias: [
+        { id_foto: 1, id_ficha: 3, ruta: "fichas/foto1.jpg", url: "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=800", tamano_bytes: 1024 * 400, fecha_subida: "2026-11-05T15:35:00Z" }
+      ]
+    },
+    {
+      id_ficha: 1,
+      id_punto: 1,
+      nombre_interseccion: "Av. Paicaví con Av. Los Carrera",
+      id_inspector: 5,
+      correo_inspector: "j.morales.vial@concepcion.cl",
+      fecha_visita: "2026-10-10",
+      fecha_registro: "2026-10-10T10:15:00Z",
+      notas: "Flujo hora punta y entorno: conteo matutino registra alto volumen de virajes de buses. Se requiere coordinar mesa técnica con UOCT para revisar fase exclusiva peatonal.",
+      factores_riesgo: [
+        { id_factor: 3, nombre: "Falta de fase exclusiva semafórica", activo: true }
+      ],
+      fotografias: []
+    },
+    {
+      id_ficha: 4,
+      id_punto: 2,
+      nombre_interseccion: "Av. Arturo Prat con San Martín",
+      id_inspector: 5,
+      correo_inspector: "j.morales.vial@concepcion.cl",
+      fecha_visita: "2026-11-02",
+      fecha_registro: "2026-11-02T11:20:00Z",
+      notas: "Visibilidad conductor: el pilar del parabrisas y espejo lateral de buses que viran hacia San Martín generan punto ciego sobre el cruce peatonal. Se recomienda instalar vallas peatonales, tachones de viraje y fase exclusiva.",
+      factores_riesgo: [
+        { id_factor: 2, nombre: "Visibilidad reducida por obstrucciones", activo: true },
+        { id_factor: 3, nombre: "Falta de fase exclusiva semafórica", activo: true }
+      ],
+      fotografias: []
+    },
+    {
+      id_ficha: 5,
+      id_punto: 3,
+      nombre_interseccion: "Rengo con Ejército",
+      id_inspector: 9001,
+      correo_inspector: "inspector@demo.alervi.test",
+      fecha_visita: "2026-10-28",
+      fecha_registro: "2026-10-28T08:45:00Z",
+      notas: "Conteo manual en hora punta mañana: conflicto recurrente por virajes de locomoción colectiva sin demarcación de resguardo peatonal.",
+      factores_riesgo: [
+        { id_factor: 1, nombre: "Falta de demarcación de cruce peatonal", activo: true },
+        { id_factor: 4, nombre: "Paradero colapsado en calzada", activo: true }
+      ],
+      fotografias: []
+    }
+  ];
 
   function authenticate(session?: Session): Schema["UsuarioResponse"] {
     if (
@@ -228,12 +293,107 @@ export function createMockTransport({
       const isDetail = detailMatch !== null && method === "GET";
       const isWeights = path === "/api/v1/factores/ponderaciones" &&
         (method === "GET" || method === "PUT");
-      if (!isRanking && !isDetail && !isWeights) {
+      const fichasMatch = /^\/api\/v1\/puntos\/(\d+)\/fichas$/.exec(path);
+      const isFichas = fichasMatch !== null && method === "GET";
+      const isInspectionsPost = path === "/api/v1/inspections" && method === "POST";
+      const isInspectionPatch = /^\/api\/v1\/inspections\/(\d+)$/.test(path) && method === "PATCH";
+      const isFotosPost = /^\/api\/v1\/inspections\/(\d+)\/fotos$/.test(path) && method === "POST";
+
+      if (!isRanking && !isDetail && !isWeights && !isFichas && !isInspectionsPost && !isInspectionPatch && !isFotosPost) {
         throw new MockHttpError(
           404, "RUTA_NO_DISPONIBLE", "Esta operación no está disponible en la demostración.",
         );
       }
       const user = authenticate(session);
+
+      if (isFichas && fichasMatch) {
+        const idPunto = Number(fichasMatch[1]);
+        const fichasDelPunto = fichasStore.filter((item) => item.id_punto === idPunto);
+        return Response.json(scenario === "empty" ? [] : fichasDelPunto);
+      }
+
+      if (isInspectionsPost) {
+        if (user.rol !== "inspector") {
+          throw new MockHttpError(403, "PERMISO_DENEGADO", "Solo el Inspector puede registrar fichas de terreno.");
+        }
+        const body = (typeof options.body === "string" ? JSON.parse(options.body) : undefined) as {
+          id_punto?: number;
+          fecha_visita?: string;
+          notas?: string;
+          factores_riesgo_ids?: number[];
+        } | undefined;
+        const nuevoId = nextFichaId++;
+        const nuevaFicha = {
+          id_ficha: nuevoId,
+          id_punto: body?.id_punto ?? 1,
+          nombre_interseccion: `Punto Crítico #${body?.id_punto ?? 1}`,
+          id_inspector: user.id_usuario,
+          correo_inspector: user.correo,
+          fecha_visita: body?.fecha_visita ?? new Date().toISOString().split("T")[0],
+          fecha_registro: new Date().toISOString(),
+          notas: body?.notas ?? "",
+          factores_riesgo: (body?.factores_riesgo_ids ?? []).map((id) => ({
+            id_factor: id,
+            nombre: `Factor #${id}`,
+            activo: true,
+          })),
+          fotografias: [] as Array<{
+            id_foto: number;
+            id_ficha: number;
+            ruta: string;
+            url: string;
+            tamano_bytes: number;
+            fecha_subida: string;
+          }>,
+        };
+        fichasStore.unshift(nuevaFicha);
+        return Response.json(nuevaFicha, { status: 201 });
+      }
+
+      if (isInspectionPatch) {
+        const patchMatch = /^\/api\/v1\/inspections\/(\d+)$/.exec(path);
+        const idFicha = patchMatch ? Number(patchMatch[1]) : 0;
+        const existente = fichasStore.find((item) => item.id_ficha === idFicha);
+        if (!existente) {
+          throw new MockHttpError(404, "FICHA_NO_ENCONTRADA", "La ficha solicitada no existe.");
+        }
+        if (user.rol !== "inspector" || existente.id_inspector !== user.id_usuario) {
+          throw new MockHttpError(403, "PERMISO_DENEGADO", "Solo el Inspector autor puede editar esta ficha.");
+        }
+        const body = (typeof options.body === "string" ? JSON.parse(options.body) : undefined) as {
+          fecha_visita?: string;
+          notas?: string;
+          factores_riesgo_ids?: number[];
+        } | undefined;
+        if (body?.fecha_visita !== undefined) existente.fecha_visita = body.fecha_visita;
+        if (body?.notas !== undefined) existente.notas = body.notas;
+        if (body?.factores_riesgo_ids !== undefined) {
+          existente.factores_riesgo = body.factores_riesgo_ids.map((id) => ({
+            id_factor: id,
+            nombre: `Factor #${id}`,
+            activo: true,
+          }));
+        }
+        return Response.json(existente);
+      }
+
+      if (isFotosPost) {
+        const fotoMatch = /^\/api\/v1\/inspections\/(\d+)\/fotos$/.exec(path);
+        const idFicha = fotoMatch ? Number(fotoMatch[1]) : 0;
+        const fotoCreada = {
+          id_foto: nextFotoId++,
+          id_ficha: idFicha,
+          ruta: `fichas/ficha_${idFicha}_demo.jpg`,
+          url: "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=800",
+          tamano_bytes: 1024 * 500,
+          fecha_subida: new Date().toISOString(),
+        };
+        const target = fichasStore.find((item) => item.id_ficha === idFicha);
+        if (target) {
+          target.fotografias.push(fotoCreada);
+        }
+        return Response.json(fotoCreada, { status: 201 });
+      }
 
       if (isRanking) {
         const [start, end] = period(url.searchParams);
