@@ -6,9 +6,10 @@ Lee variables de entorno (o .env) y las expone como un objeto tipado.
 
 import os
 from pathlib import Path
-from typing import List
+from typing import Any, List, Optional
 
 try:
+    from pydantic import field_validator
     from pydantic_settings import BaseSettings, SettingsConfigDict
 except ImportError:
     from pydantic import (
@@ -17,14 +18,32 @@ except ImportError:
 
     SettingsConfigDict = None
 
+    try:
+        from pydantic import field_validator
+    except ImportError:
+
+        def field_validator(*args, **kwargs):  # type: ignore
+            def decorator(f):
+                return f
+
+            return decorator
+
+
+def _clean_env(val: Optional[str], default: str = "") -> str:
+    """Limpia comentarios inline ('# ...') y espacios de una variable de entorno."""
+    raw = val if val is not None else default
+    return raw.split("#")[0].strip().strip("'\"")
+
 
 def _load_env_fallback() -> None:
     """Carga variables desde archivos .env a os.environ si no estan cargadas ya."""
-    candidates = [
-        Path.cwd() / ".env",
-        Path(__file__).resolve().parents[2] / ".env",
-        Path(__file__).resolve().parents[4] / ".env",
-    ]
+    parents = Path(__file__).resolve().parents
+    candidates = [Path.cwd() / ".env"]
+    if len(parents) > 2:
+        candidates.append(parents[2] / ".env")
+    if len(parents) > 4:
+        candidates.append(parents[4] / ".env")
+
     for env_path in candidates:
         if env_path.is_file():
             try:
@@ -35,7 +54,7 @@ def _load_env_fallback() -> None:
                             continue
                         key, val = line.split("=", 1)
                         key = key.strip()
-                        val = val.strip().strip("'\"")
+                        val = _clean_env(val)
                         if key and key not in os.environ:
                             os.environ[key] = val
             except Exception:
@@ -56,41 +75,60 @@ class Settings(BaseSettings):
         )
 
     # -- Base de datos --
-    database_url: str = os.getenv(
-        "DATABASE_URL",
+    database_url: str = _clean_env(
+        os.getenv("DATABASE_URL"),
         "postgresql://alervi_user:alervi_dev_2026@localhost:5432/alervi_db",
     )
 
     # -- Parametros de pool para control de cuotas (Plan Gratuito) --
-    db_pool_size: int = int(os.getenv("DB_POOL_SIZE", "5"))
-    db_max_overflow: int = int(os.getenv("DB_MAX_OVERFLOW", "2"))
-    db_pool_timeout: int = int(os.getenv("DB_POOL_TIMEOUT", "30"))
-    db_pool_recycle: int = int(os.getenv("DB_POOL_RECYCLE", "1800"))
-    db_use_null_pool: bool = os.getenv("DB_USE_NULL_POOL", "false").lower() in (
+    db_pool_size: int = int(_clean_env(os.getenv("DB_POOL_SIZE"), "5"))
+    db_max_overflow: int = int(_clean_env(os.getenv("DB_MAX_OVERFLOW"), "2"))
+    db_pool_timeout: int = int(_clean_env(os.getenv("DB_POOL_TIMEOUT"), "30"))
+    db_pool_recycle: int = int(_clean_env(os.getenv("DB_POOL_RECYCLE"), "1800"))
+    db_use_null_pool: bool = _clean_env(
+        os.getenv("DB_USE_NULL_POOL"), "false"
+    ).lower() in (
         "1",
         "true",
         "yes",
     )
-    db_ssl_require: bool = os.getenv("DB_SSL_REQUIRE", "false").lower() in (
+    db_ssl_require: bool = _clean_env(os.getenv("DB_SSL_REQUIRE"), "false").lower() in (
         "1",
         "true",
         "yes",
     )
 
     # -- Seguridad --
-    backend_secret_key: str = os.getenv(
-        "BACKEND_SECRET_KEY", "dev-secret-key-cambiar-en-prod"
+    backend_secret_key: str = _clean_env(
+        os.getenv("BACKEND_SECRET_KEY"), "dev-secret-key-cambiar-en-prod"
     )
-    backend_debug: bool = os.getenv("BACKEND_DEBUG", "true").lower() in (
+    backend_debug: bool = _clean_env(os.getenv("BACKEND_DEBUG"), "true").lower() in (
         "1",
         "true",
         "yes",
     )
 
     # -- CORS --
-    backend_cors_origins: str = os.getenv(
-        "BACKEND_CORS_ORIGINS", "http://localhost:3000"
+    backend_cors_origins: str = _clean_env(
+        os.getenv("BACKEND_CORS_ORIGINS"), "http://localhost:3000"
     )
+
+    @field_validator(
+        "db_pool_size",
+        "db_max_overflow",
+        "db_pool_timeout",
+        "db_pool_recycle",
+        "db_use_null_pool",
+        "db_ssl_require",
+        "backend_debug",
+        mode="before",
+        check_fields=False,
+    )
+    @classmethod
+    def _strip_inline_comments(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            return _clean_env(v)
+        return v
 
     @property
     def cors_origins(self) -> List[str]:

@@ -359,7 +359,7 @@ def test_evaluar_alerta_proximidad_cinematica():
     )
     res_lenta = spatial_service.evaluar_alerta_proximidad(mock_db, req_lenta)
     assert res_lenta.alerta_activa is False
-    assert res_lenta.telemetria_status == "SUPRIMIDA_VELOCIDAD"
+    assert res_lenta.telemetria_status == "SUPRIMIDO_VELOCIDAD_BAJA"
 
     # 2. Mock de punto cercano dentro de 200m
     mock_row = MagicMock()
@@ -370,6 +370,9 @@ def test_evaluar_alerta_proximidad_cinematica():
     mock_row.fallecidos = 2
     mock_row.total_siniestros = 30
 
+    mock_db.query.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.order_by.return_value.all.return_value = [
+        mock_row
+    ]
     mock_db.query.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.order_by.return_value.first.return_value = mock_row
 
     req_alerta = AlertCheckRequest(
@@ -384,15 +387,56 @@ def test_evaluar_alerta_proximidad_cinematica():
     assert res_activa.alerta_activa is True
     assert res_activa.alerta.id_punto == 101
     assert res_activa.alerta.nivel_riesgo == "CRITICO"
-    assert res_activa.alerta.patron_sonoro == "BEEP_CRITICO"
+    assert res_activa.alerta.patron_sonoro == "BEEP_URGENTE"
 
     # 3. Punto lejano (no encontrado en 200m)
+    mock_db.query.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.order_by.return_value.all.return_value = []
     mock_db.query.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.order_by.return_value.first.return_value = None
     res_lejos = spatial_service.evaluar_alerta_proximidad(mock_db, req_alerta)
     assert res_lejos.alerta_activa is False
-    assert res_lejos.telemetria_status == "EVALUADO_SIN_ALERTA"
+    assert res_lejos.telemetria_status == "SIN_PUNTOS_EN_RANGO"
 
-    # 4. Fallback con db=None
+    # 4. Trayectoria divergente (rumbo 180° alejandose del punto hacia el sur)
+    mock_db.query.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.order_by.return_value.all.return_value = [
+        mock_row
+    ]
+    req_div = AlertCheckRequest(
+        session_id="test-session-3",
+        latitude=-36.8210,
+        longitude=-73.0543,
+        speed_mps=13.88,
+        heading_degrees=180.0,
+        timestamp="2026-11-03T02:30:00Z",
+    )
+    res_div = spatial_service.evaluar_alerta_proximidad(mock_db, req_div)
+    assert res_div.alerta_activa is False
+    assert res_div.telemetria_status == "SUPRIMIDO_TRAYECTORIA_DIVERGENTE"
+
+    # 5. Acercamiento pero TTC > 12s
+    mock_row_lejos = MagicMock()
+    mock_row_lejos.id_punto = 102
+    mock_row_lejos.lat = -36.8190
+    mock_row_lejos.lon = -73.0543
+    mock_row_lejos.distancia_m = 180.0
+    mock_row_lejos.fallecidos = 0
+    mock_row_lejos.total_siniestros = 10
+
+    mock_db.query.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.order_by.return_value.all.return_value = [
+        mock_row_lejos
+    ]
+    req_ttc = AlertCheckRequest(
+        session_id="test-session-4",
+        latitude=-36.8210,
+        longitude=-73.0543,
+        speed_mps=5.0,  # 5 m/s -> TTC = 180 / 5 = 36s > 12s
+        heading_degrees=0.0,
+        timestamp="2026-11-03T02:30:00Z",
+    )
+    res_ttc = spatial_service.evaluar_alerta_proximidad(mock_db, req_ttc)
+    assert res_ttc.alerta_activa is False
+    assert res_ttc.telemetria_status == "SUPRIMIDO_TTC_MAYOR_12S"
+
+    # 6. Fallback con db=None
     fb = spatial_service.evaluar_alerta_proximidad(None, req_alerta)
     assert fb.alerta_activa is True
 
