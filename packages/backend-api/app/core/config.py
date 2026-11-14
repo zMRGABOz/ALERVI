@@ -124,7 +124,11 @@ class Settings(BaseSettings):
         _clean_env(os.getenv("AUTH_LOCKOUT_STATUS_CODE"), "403")
     )
     admin_mfa_default_code: str = _clean_env(
-        os.getenv("ADMIN_MFA_DEFAULT_CODE"), "482910"
+        os.getenv("ADMIN_MFA_DEFAULT_CODE"),
+        "482910"
+        if _clean_env(os.getenv("BACKEND_DEBUG"), "true").lower()
+        in ("1", "true", "yes")
+        else "",
     )
     admin_totp_secret: str = _clean_env(
         os.getenv("ADMIN_TOTP_SECRET"), "JBSWY3DPEHPK3PXP"

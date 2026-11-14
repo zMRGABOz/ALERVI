@@ -140,17 +140,25 @@ def upload_photo_to_supabase(
             with httpx.Client(timeout=10.0) as client:
                 res = client.post(upload_url, content=file_bytes, headers=headers)
                 if res.status_code not in (200, 201):
-                    logger.warning(
+                    logger.error(
                         "Supabase Storage respondió con estado %d al subir %s: %s",
                         res.status_code,
                         storage_path,
                         res.text,
                     )
+                    raise IOError(
+                        f"Supabase Storage respondió con estado HTTP {res.status_code}: {res.text}"
+                    )
+        except IOError:
+            raise
         except Exception as ex:
-            logger.warning(
+            logger.error(
                 "No fue posible conectar con Supabase Storage para %s: %s",
                 storage_path,
                 str(ex),
             )
+            raise IOError(
+                f"No fue posible conectar con Supabase Storage para {storage_path}: {str(ex)}"
+            ) from ex
 
     return storage_path, public_url, tamano_bytes

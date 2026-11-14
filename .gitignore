@@ -83,3 +83,5 @@ blob-report/
 *.tmp
 *.bak
 *.orig
+
+skills/*

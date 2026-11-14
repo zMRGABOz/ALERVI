@@ -1188,7 +1188,19 @@ def agregar_fotografia_ficha(
                 .filter(FichaInspeccion.id_ficha == id_ficha)
                 .first()
             )
-        except (OperationalError, Exception):
+            if ficha is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Ficha de inspección con ID {id_ficha} no encontrada.",
+                )
+        except HTTPException:
+            raise
+        except (OperationalError, Exception) as exc:
+            logger.warning(
+                "Error de conectividad de BD al consultar ficha %s: %s",
+                id_ficha,
+                exc,
+            )
             ficha = None
 
     # RB-11: Validar autoría propia (o rol administrador)
@@ -1227,8 +1239,8 @@ def agregar_fotografia_ficha(
                     detail="Acceso denegado: solo el inspector autor de la ficha puede adjuntar fotos (RB-11)",
                 )
 
-    # Procesar archivo: si no se envía nada (compatibilidad test), generar imagen dummy
-    if file_bytes is None or len(file_bytes) == 0:
+    # Procesar archivo: si no se envía archivo (compatibilidad test con file_bytes=None), generar imagen dummy
+    if file_bytes is None:
         dummy = Image.new("RGB", (100, 100), color=(70, 130, 180))
         d_buf = io.BytesIO()
         dummy.save(d_buf, format="JPEG")
@@ -1263,9 +1275,16 @@ def agregar_fotografia_ficha(
             )
 
     # Subida al bucket 'fichas' de Supabase Storage bajo UUID único generado por el servidor
-    storage_path, public_url, tamano_bytes = storage_service.upload_photo_to_supabase(
-        sanitized_bytes, ext, mime
-    )
+    try:
+        storage_path, public_url, tamano_bytes = (
+            storage_service.upload_photo_to_supabase(sanitized_bytes, ext, mime)
+        )
+    except (IOError, RuntimeError) as io_err:
+        logger.error("Error al almacenar la fotografía en Supabase Storage: %s", io_err)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Fallo en el servicio de almacenamiento de evidencias: {io_err}",
+        )
 
     # Persistencia en BD
     if db is not None:
@@ -1306,6 +1325,7 @@ def agregar_fotografia_ficha(
         except HTTPException:
             raise
         except (OperationalError, Exception) as ex:
+            db.rollback()
             logger.warning("Error al persistir foto en BD: %s", str(ex))
             pass
 

@@ -311,3 +311,105 @@ def test_endpoint_upload_foto_rechaza_formato_invalido(client, auth_headers):
     res = client.post("/api/v1/inspections/15/fotos", files=files, headers=auth_headers)
     assert res.status_code == 400
     assert "Solo se admiten formatos JPEG o PNG" in res.json()["detail"]
+
+
+def test_endpoint_upload_foto_rechaza_archivo_vacio_0_bytes(client, auth_headers):
+    """Verifica rechazo con 400 si se envía un archivo de imagen de 0 bytes."""
+    # Crear una ficha válida
+    payload = {
+        "id_punto": 101,
+        "fecha_visita": "2026-11-02",
+        "notas": "Ficha para prueba de archivo vacío.",
+        "factores_riesgo_ids": [1],
+    }
+    res_ficha = client.post("/api/v1/inspections", json=payload, headers=auth_headers)
+    assert res_ficha.status_code == 201
+    id_ficha = res_ficha.json()["id_ficha"]
+
+    files = {"foto": ("corrupto.jpg", b"", "image/jpeg")}
+    res = client.post(
+        f"/api/v1/inspections/{id_ficha}/fotos", files=files, headers=auth_headers
+    )
+    assert res.status_code == 400
+    assert "El archivo de imagen está vacío" in res.json()["detail"]
+
+
+def test_endpoint_upload_foto_ficha_inexistente_404(client, auth_headers):
+    """Verifica que subir una foto a una ficha inexistente devuelva 404 Not Found en BD activa."""
+    from app.core.database import get_db
+    from app.main import app
+
+    mock_db = MagicMock()
+    mock_db.query.return_value.filter.return_value.first.return_value = None
+
+    app.dependency_overrides[get_db] = lambda: mock_db
+    try:
+        raw_jpeg = _create_jpeg_with_gps()
+        files = {"foto": ("evidencia.jpg", raw_jpeg, "image/jpeg")}
+        res = client.post(
+            "/api/v1/inspections/999999/fotos", files=files, headers=auth_headers
+        )
+        assert res.status_code == 404
+        assert "no encontrada" in res.json()["detail"].lower()
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_crud_agregar_fotografia_ficha_inexistente_raises_404():
+    """Verifica que si la ficha no existe en BD real, crud_service levante 404."""
+    mock_db = MagicMock()
+    mock_db.query.return_value.filter.return_value.first.return_value = None
+
+    with pytest.raises(HTTPException) as exc_info:
+        crud_service.agregar_fotografia_ficha(
+            mock_db, id_ficha=999999, file_bytes=_create_jpeg_with_gps()
+        )
+
+    assert exc_info.value.status_code == 404
+    assert "no encontrada" in exc_info.value.detail.lower()
+
+
+def test_upload_photo_to_supabase_error_raises_ioerror():
+    """Verifica que un fallo HTTP en Supabase Storage levante IOError cuando hay credenciales."""
+    mock_post_res = MagicMock()
+    mock_post_res.status_code = 401
+    mock_post_res.text = "Unauthorized: Invalid Service Key"
+
+    with (
+        patch("httpx.Client.post", return_value=mock_post_res),
+        patch.object(settings, "supabase_key", "invalid-key"),
+        patch.object(settings, "supabase_url", "https://xyzproject.supabase.co"),
+        patch.object(settings, "supabase_storage_bucket", "fichas"),
+    ):
+        raw_jpeg = _create_jpeg_with_gps()
+        clean_bytes, ext, mime = storage_service.sanitize_image_exif(raw_jpeg)
+        with pytest.raises(IOError, match="Supabase Storage respondió con estado HTTP 401"):
+            storage_service.upload_photo_to_supabase(clean_bytes, ext, mime)
+
+
+def test_crud_agregar_fotografia_supabase_error_returns_502(client, auth_headers):
+    """Verifica que fallo en Supabase Storage durante la subida de evidencia retorne 502 Bad Gateway."""
+    # Crear ficha válida
+    payload = {
+        "id_punto": 101,
+        "fecha_visita": "2026-11-02",
+        "notas": "Ficha para prueba de error en Supabase Storage.",
+        "factores_riesgo_ids": [1],
+    }
+    res_ficha = client.post("/api/v1/inspections", json=payload, headers=auth_headers)
+    assert res_ficha.status_code == 201
+    id_ficha = res_ficha.json()["id_ficha"]
+
+    raw_jpeg = _create_jpeg_with_gps()
+    files = {"foto": ("evidencia.jpg", raw_jpeg, "image/jpeg")}
+
+    with patch(
+        "app.services.storage_service.upload_photo_to_supabase",
+        side_effect=IOError("Supabase Storage timeout de conexión"),
+    ):
+        res = client.post(
+            f"/api/v1/inspections/{id_ficha}/fotos", files=files, headers=auth_headers
+        )
+        assert res.status_code == 502
+        assert "servicio de almacenamiento" in res.json()["detail"].lower()
+

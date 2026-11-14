@@ -6,7 +6,7 @@ Garantiza cobertura > 85% sobre la logica de negocio, queries PostGIS y CRUD.
 
 import uuid
 from datetime import date, datetime, timezone
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -786,10 +786,21 @@ def test_authenticate_user_bloqueo_y_auditoria_unit():
 
 def test_verify_mfa_code_unit():
     """Verifica validación de segundo factor MFA (RFC 6238 y código canónico)."""
+    from app.core.config import settings
     from app.core.security import verify_mfa_code
 
     # Código canónico por defecto
     assert verify_mfa_code("482910") is True
+
+    # Desactivación de código fijo en producción / configuración vacía
+    with patch.object(settings, "admin_mfa_default_code", ""):
+        assert verify_mfa_code("482910") is False
+
+    with patch.object(settings, "admin_mfa_default_code", "disabled"):
+        assert verify_mfa_code("482910") is False
+
+    with patch.object(settings, "admin_mfa_default_code", "none"):
+        assert verify_mfa_code("482910") is False
 
     # Códigos inválidos o malformados
     assert verify_mfa_code(None) is False

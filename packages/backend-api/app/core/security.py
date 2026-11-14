@@ -103,10 +103,11 @@ def verify_mfa_code(code: Optional[str], secret: Optional[str] = None) -> bool:
     if len(c) != 6 or not c.isdigit():
         return False
 
-    # 1. Código canónico oficial de desarrollo y pruebas
-    canonical = getattr(settings, "admin_mfa_default_code", "482910")
-    if hmac.compare_digest(c, canonical):
-        return True
+    # 1. Código canónico oficial de desarrollo y pruebas (solo activo si está configurado y no deshabilitado)
+    canonical = (getattr(settings, "admin_mfa_default_code", "") or "").strip()
+    if canonical and canonical.lower() not in ("none", "disabled", "false", "0"):
+        if hmac.compare_digest(c, canonical):
+            return True
 
     # 2. Validación estándar RFC 6238 TOTP
     try:
