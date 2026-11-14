@@ -97,6 +97,13 @@ class Settings(BaseSettings):
         "true",
         "yes",
     )
+    db_pool_pre_ping: bool = _clean_env(
+        os.getenv("DB_POOL_PRE_PING"), "false"
+    ).lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 
     # -- Seguridad --
     backend_secret_key: str = _clean_env(

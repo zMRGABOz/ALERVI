@@ -262,7 +262,15 @@ async def get_puntos_criticos_publicos(
     tags=["Ranking y Analítica"],
     summary="Consultar ranking jerarquizado de puntos críticos",
 )
-async def get_ranking(
+@app.get(
+    "/ranking",
+    response_model=RankingResponse,
+    status_code=status.HTTP_200_OK,
+    tags=["Ranking y Analítica"],
+    summary="Consultar ranking jerarquizado de puntos críticos (alias)",
+    include_in_schema=False,
+)
+def get_ranking(
     comuna: Optional[str] = Query("Concepción", description="Comuna de análisis"),
     anio: Optional[int] = Query(
         None, description="Filtrar cálculo para un año específico (2020-2025)"
@@ -597,7 +605,15 @@ async def get_historial_fichas_punto(
     tags=["Alertas Proximidad"],
     summary="Evaluar telemetría de vehículo para alerta de proximidad",
 )
-async def evaluate_proximity_alert(
+@app.post(
+    "/alerts",
+    response_model=AlertCheckResponse,
+    status_code=status.HTTP_200_OK,
+    tags=["Alertas Proximidad"],
+    summary="Evaluar telemetría de vehículo para alerta de proximidad (alias)",
+    include_in_schema=False,
+)
+def evaluate_proximity_alert(
     payload: AlertCheckRequest,
     db: Session = Depends(get_db),
 ):

@@ -1227,22 +1227,6 @@ def agregar_fotografia_ficha(
                     detail="Acceso denegado: solo el inspector autor de la ficha puede adjuntar fotos (RB-11)",
                 )
 
-    # RB-10: Límite máximo de 3 fotografías por ficha
-    if db is not None:
-        try:
-            raw_count = (
-                db.query(Fotografia).filter(Fotografia.id_ficha == id_ficha).count()
-            )
-            count = int(raw_count) if isinstance(raw_count, (int, float)) else 0
-        except Exception:
-            count = 0
-
-        if count >= 3:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="La ficha admite un máximo de 3 fotografías.",
-            )
-
     # Procesar archivo: si no se envía nada (compatibilidad test), generar imagen dummy
     if file_bytes is None or len(file_bytes) == 0:
         dummy = Image.new("RGB", (100, 100), color=(70, 130, 180))
@@ -1261,6 +1245,22 @@ def agregar_fotografia_ficha(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(err),
         )
+
+    # RB-10: Límite máximo de 3 fotografías por ficha
+    if db is not None:
+        try:
+            raw_count = (
+                db.query(Fotografia).filter(Fotografia.id_ficha == id_ficha).count()
+            )
+            count = int(raw_count) if isinstance(raw_count, (int, float)) else 0
+        except Exception:
+            count = 0
+
+        if count >= 3:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="La ficha admite un máximo de 3 fotografías.",
+            )
 
     # Subida al bucket 'fichas' de Supabase Storage bajo UUID único generado por el servidor
     storage_path, public_url, tamano_bytes = storage_service.upload_photo_to_supabase(

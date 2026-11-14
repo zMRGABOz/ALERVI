@@ -284,9 +284,21 @@ def test_endpoint_upload_foto_multipart_integration(client, auth_headers):
 
 def test_endpoint_upload_foto_alias_route(client, auth_headers):
     """Verifica que el alias sin prefijo /inspections/{id}/fotos también funcione."""
+    # Crear ficha limpia para garantizar idempotencia en ejecuciones repetidas
+    payload = {
+        "id_punto": 101,
+        "fecha_visita": "2026-11-02",
+        "notas": "Inspección de prueba para ruta alias.",
+        "factores_riesgo_ids": [1],
+    }
+    res_ficha = client.post("/api/v1/inspections", json=payload, headers=auth_headers)
+    id_ficha = res_ficha.json()["id_ficha"] if res_ficha.status_code == 201 else 15
+
     raw_png = _create_png_with_metadata()
     files = {"foto": ("captura.png", raw_png, "image/png")}
-    res_alias = client.post("/inspections/15/fotos", files=files, headers=auth_headers)
+    res_alias = client.post(
+        f"/inspections/{id_ficha}/fotos", files=files, headers=auth_headers
+    )
     assert res_alias.status_code == 201
     data = res_alias.json()
     assert data["ruta"].endswith(".png")
