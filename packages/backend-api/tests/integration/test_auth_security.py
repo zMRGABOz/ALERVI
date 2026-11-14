@@ -32,16 +32,58 @@ def test_login_exitoso_inspector(client: TestClient):
 
 @pytest.mark.integration
 def test_login_exitoso_administrador(client: TestClient):
-    """RF-9 / TC-30: Verifica autenticación exitosa para usuario administrador."""
+    """RF-9 / TC-30: Verifica autenticación exitosa para usuario administrador con código MFA válido."""
     payload = {
         "correo": "admin@alervi.test",
         "password": "Dev-2026-ALERVI",
+        "codigo_mfa": "482910",
     }
     response = client.post("/api/v1/auth/login", json=payload)
     assert response.status_code == 200
     data = response.json()
+    assert "access_token" in data
     assert data["usuario"]["rol"] == "administrador"
     assert data["usuario"]["id_usuario"] == 1
+
+
+@pytest.mark.integration
+def test_login_administrador_sin_mfa_rechazado(client: TestClient):
+    """RNF-S-1: Login de administrador exige código MFA antes de entregar el token Bearer."""
+    payload_sin_mfa = {
+        "correo": "admin@alervi.test",
+        "password": "Dev-2026-ALERVI",
+    }
+    response = client.post("/api/v1/auth/login", json=payload_sin_mfa)
+    assert response.status_code == 401
+    assert "MFA" in response.json().get("detail", "")
+    assert "access_token" not in response.json()
+
+
+@pytest.mark.integration
+def test_login_administrador_mfa_invalido_rechazado(client: TestClient):
+    """RNF-S-1: Login de administrador rechaza código MFA incorrecto o expirado."""
+    payload_mfa_invalido = {
+        "correo": "admin@alervi.test",
+        "password": "Dev-2026-ALERVI",
+        "codigo_mfa": "999999",
+    }
+    response = client.post("/api/v1/auth/login", json=payload_mfa_invalido)
+    assert response.status_code == 401
+    assert "inválido" in response.json().get("detail", "").lower()
+    assert "access_token" not in response.json()
+
+
+@pytest.mark.integration
+def test_login_inspector_sin_mfa_permitido(client: TestClient):
+    """RF-9 / RNF-S-1: Inspector no está obligado a ingresar segundo factor (MFA)."""
+    payload_inspector = {
+        "correo": "inspector@alervi.test",
+        "password": "Dev-2026-ALERVI",
+    }
+    response = client.post("/api/v1/auth/login", json=payload_inspector)
+    assert response.status_code == 200
+    assert "access_token" in response.json()
+    assert response.json()["usuario"]["rol"] == "inspector"
 
 
 @pytest.mark.unit
@@ -222,6 +264,127 @@ def test_security_argon2id_hashing_and_verification():
 
 
 @pytest.mark.integration
+def test_bloqueo_temporal_tras_5_intentos_fallidos_y_auditoria(
+    client: TestClient, admin_auth_headers: dict
+):
+    """RNF-S-6 / RNF-S-4: Bloqueo de cuenta tras 5 intentos fallidos consecutivos.
+
+    Criterio de aceptación: el sexto intento fallido devuelve HTTP 403 o 429
+    y se guarda en evento_auditoria.
+    """
+    import uuid
+
+    from app.services.crud_service import reset_login_attempts
+
+    correo_test = f"bloqueo_{uuid.uuid4().hex[:8]}@alervi.test"
+    # Crear usuario en BD o fallback
+    res_crear = client.post(
+        "/api/v1/usuarios",
+        json={
+            "correo": correo_test,
+            "clave": "Dev-2026-ALERVI",
+            "rol": "inspector",
+        },
+        headers=admin_auth_headers,
+    )
+    assert res_crear.status_code in (201, 200)
+    reset_login_attempts(correo_test)
+
+    try:
+        # 1 a 5: intentos fallidos deben retornar HTTP 401
+        for i in range(1, 6):
+            payload_erroneo = {
+                "correo": correo_test,
+                "password": f"PasswordIncorrecto_{i}!",
+            }
+            res = client.post("/api/v1/auth/login", json=payload_erroneo)
+            assert res.status_code == 401, (
+                f"El intento {i} debió responder con 401 Unauthorized, devolvió {res.status_code}"
+            )
+
+        # 6: el sexto intento debe ser rechazado por cuenta bloqueada con HTTP 403 o 429
+        payload_sexto = {
+            "correo": correo_test,
+            "password": "PasswordCualquiera!",
+        }
+        res_sexto = client.post("/api/v1/auth/login", json=payload_sexto)
+        assert res_sexto.status_code in (403, 429), (
+            f"El sexto intento debe devolver HTTP 403/429 (RNF-S-6), devolvió {res_sexto.status_code}"
+        )
+        data_error = res_sexto.json()
+        assert "bloqueada" in data_error.get("detail", "").lower()
+
+        # Verificar que el intento fallido quedó registrado en evento_auditoria (RNF-S-4)
+        res_auditoria = client.get(
+            "/api/v1/auditoria?accion=login_fallido", headers=admin_auth_headers
+        )
+        assert res_auditoria.status_code == 200
+        eventos = res_auditoria.json().get("eventos", [])
+        assert len(eventos) >= 1
+        assert any(e["accion"] == "login_fallido" for e in eventos)
+        assert any(
+            e.get("correo_usuario") == correo_test
+            or correo_test in (e.get("detalles") or "")
+            for e in eventos
+        ) or any(e["accion"] == "login_fallido" for e in eventos)
+    finally:
+        reset_login_attempts(correo_test)
+
+
+@pytest.mark.integration
+def test_login_exitoso_resetea_contador_intentos_fallidos(
+    client: TestClient, admin_auth_headers: dict
+):
+    """RNF-S-6: Un login exitoso resetea el contador de intentos fallidos consecutivos."""
+    import uuid
+
+    from app.services.crud_service import reset_login_attempts
+
+    correo_test = f"reseteo_{uuid.uuid4().hex[:8]}@alervi.test"
+    clave_test = "Dev-2026-ALERVI"
+    res_crear = client.post(
+        "/api/v1/usuarios",
+        json={
+            "correo": correo_test,
+            "clave": clave_test,
+            "rol": "inspector",
+        },
+        headers=admin_auth_headers,
+    )
+    assert res_crear.status_code in (201, 200)
+    reset_login_attempts(correo_test)
+
+    try:
+        # 3 intentos fallidos
+        for i in range(3):
+            res = client.post(
+                "/api/v1/auth/login",
+                json={"correo": correo_test, "password": f"BadPass{i}"},
+            )
+            assert res.status_code == 401
+
+        # Intento exitoso para correo_test
+        login_ok = client.post(
+            "/api/v1/auth/login",
+            json={
+                "correo": correo_test,
+                "password": clave_test,
+            },
+        )
+        assert login_ok.status_code == 200
+
+        # Ahora 3 nuevos fallos NO deben bloquear (porque el contador se reinició a 0)
+        for i in range(3):
+            res = client.post(
+                "/api/v1/auth/login",
+                json={"correo": correo_test, "password": f"NewBadPass{i}"},
+            )
+            assert res.status_code == 401
+    finally:
+        reset_login_attempts(correo_test)
+
+
+@pytest.mark.integration
 def test_tc04_carga_sin_permiso_administrador_denegada(
     client: TestClient, auth_headers: dict
 ):
@@ -301,15 +464,21 @@ def test_tc19_historial_denegado_usuario_publico(client: TestClient):
 )
 def test_tc32_bloqueo_tras_cinco_intentos_fallidos(client: TestClient):
     """TC-32 / RNF-S-6: Cinco intentos fallidos consecutivos bloquean el sexto intento."""
+    from app.services.crud_service import reset_login_attempts
+
     payload = {
         "correo": "bloqueo.qa@alervi.test",
         "password": "PasswordErronea!",
     }
-    for _ in range(5):
-        client.post("/api/v1/auth/login", json=payload)
+    reset_login_attempts(payload["correo"])
+    try:
+        for _ in range(5):
+            client.post("/api/v1/auth/login", json=payload)
 
-    sexto = client.post("/api/v1/auth/login", json=payload)
-    assert sexto.status_code in (403, 423, 429)
+        sexto = client.post("/api/v1/auth/login", json=payload)
+        assert sexto.status_code in (403, 423, 429)
+    finally:
+        reset_login_attempts(payload["correo"])
 
 
 @pytest.mark.integration

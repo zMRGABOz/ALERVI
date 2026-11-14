@@ -4,8 +4,9 @@ Pruebas unitarias para spatial_service y crud_service.
 Garantiza cobertura > 85% sobre la logica de negocio, queries PostGIS y CRUD.
 """
 
+import uuid
 from datetime import date, datetime, timezone
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -640,7 +641,10 @@ def test_crud_fichas_y_fotografias():
     # Adjuntar fotografia
     foto_res = crud_service.agregar_fotografia_ficha(mock_db, 10)
     assert foto_res.id_ficha == 10
-    assert "inspecciones/10/" in foto_res.ruta
+    uuid_str = foto_res.ruta.split(".")[0]
+    assert uuid.UUID(uuid_str)
+    assert foto_res.url is not None
+    assert "/fichas/" in foto_res.url
 
     # Fallback con db=None
     f_none = crud_service.obtener_ficha_por_id(None, 999)
@@ -696,3 +700,153 @@ def test_crud_auditoria_y_carga_vial():
     # Fallback con db=None
     fb_carga = crud_service.procesar_carga_vial(None, batch)
     assert fb_carga.estado == "COMPLETADA_CON_ADVERTENCIAS"
+
+
+def test_login_attempt_tracker_unit():
+    """Verifica lógica interna de conteo, bloqueo y expiración de LoginAttemptTracker (RNF-S-6)."""
+    from app.services.crud_service import LoginAttemptTracker
+
+    tracker = LoginAttemptTracker(max_attempts=5, lockout_duration_seconds=1)
+    email = "test.tracker@alervi.cl"
+
+    # Intentos 1 a 4
+    for i in range(1, 5):
+        intentos, is_locked = tracker.register_failed_attempt(email)
+        assert intentos == i
+        assert is_locked is False
+        assert tracker.is_locked(email) is False
+
+    # Intento 5: se bloquea
+    intentos, is_locked = tracker.register_failed_attempt(email)
+    assert intentos == 5
+    assert is_locked is True
+    assert tracker.is_locked(email) is True
+
+    # Intento 6 (mientras está bloqueado)
+    intentos, is_locked = tracker.register_failed_attempt(email)
+    assert is_locked is True
+
+    # Reseteo manual
+    tracker.reset_attempts(email)
+    assert tracker.is_locked(email) is False
+
+    # Expiración temporal automática
+    exp_tracker = LoginAttemptTracker(max_attempts=1, lockout_duration_seconds=0)
+    exp_tracker.register_failed_attempt("exp@alervi.cl")
+    # Al tener duración 0, inmediatamente ahora >= bloqueado_hasta
+    import time
+
+    time.sleep(0.01)
+    assert exp_tracker.is_locked("exp@alervi.cl") is False
+
+
+def test_authenticate_user_bloqueo_y_auditoria_unit():
+    """RNF-S-6 / RNF-S-4: Verifica que authenticate_user lanza 403/429 en el 6to intento y audita."""
+    from fastapi import HTTPException
+
+    from app.services.crud_service import (
+        authenticate_user,
+        registrar_evento_auditoria,
+        reset_login_attempts,
+    )
+
+    test_mail = "funcionario.bloqueo.unit@alervi.cl"
+    reset_login_attempts(test_mail)
+
+    try:
+        # 5 intentos fallidos levantan 401
+        for _ in range(5):
+            with pytest.raises(HTTPException) as exc_info:
+                authenticate_user(
+                    None,
+                    LoginRequest(correo=test_mail, password="ClaveInvalida123*"),
+                )
+            assert exc_info.value.status_code == 401
+
+        # El 6to intento levanta 403 o 429
+        with pytest.raises(HTTPException) as exc_info:
+            authenticate_user(
+                None,
+                LoginRequest(correo=test_mail, password="ClaveInvalida123*"),
+            )
+        assert exc_info.value.status_code in (403, 429)
+        assert "bloqueada" in exc_info.value.detail.lower()
+
+        # Registro directo en auditoría
+        ev = registrar_evento_auditoria(
+            None,
+            accion="login_fallido",
+            correo_usuario=test_mail,
+            detalles="Prueba unitaria de auditoría",
+        )
+        assert ev is None  # Con db=None retorna None pero guarda en buffer
+    finally:
+        reset_login_attempts(test_mail)
+
+
+def test_verify_mfa_code_unit():
+    """Verifica validación de segundo factor MFA (RFC 6238 y código canónico)."""
+    from app.core.config import settings
+    from app.core.security import verify_mfa_code
+
+    # Código canónico por defecto
+    assert verify_mfa_code("482910") is True
+
+    # Desactivación de código fijo en producción / configuración vacía
+    with patch.object(settings, "admin_mfa_default_code", ""):
+        assert verify_mfa_code("482910") is False
+
+    with patch.object(settings, "admin_mfa_default_code", "disabled"):
+        assert verify_mfa_code("482910") is False
+
+    with patch.object(settings, "admin_mfa_default_code", "none"):
+        assert verify_mfa_code("482910") is False
+
+    # Códigos inválidos o malformados
+    assert verify_mfa_code(None) is False
+    assert verify_mfa_code("") is False
+    assert verify_mfa_code("12345") is False
+    assert verify_mfa_code("1234567") is False
+    assert verify_mfa_code("abcdef") is False
+    assert verify_mfa_code("000000") is False
+
+
+def test_authenticate_user_admin_mfa_unit():
+    """RNF-S-1: Login de administrador exige código MFA antes de entregar token Bearer."""
+    from fastapi import HTTPException
+
+    from app.services.crud_service import authenticate_user
+
+    # Admin sin código MFA -> debe levantar HTTP 401
+    with pytest.raises(HTTPException) as exc_info:
+        authenticate_user(
+            None,
+            LoginRequest(correo="admin@alervi.test", password="Dev-2026-ALERVI"),
+        )
+    assert exc_info.value.status_code == 401
+    assert "MFA" in exc_info.value.detail
+
+    # Admin con código MFA inválido -> debe levantar HTTP 401
+    with pytest.raises(HTTPException) as exc_info:
+        authenticate_user(
+            None,
+            LoginRequest(
+                correo="admin@alervi.test",
+                password="Dev-2026-ALERVI",
+                codigo_mfa="111111",
+            ),
+        )
+    assert exc_info.value.status_code == 401
+    assert "inválido" in exc_info.value.detail.lower()
+
+    # Admin con código MFA válido -> debe entregar token Bearer
+    resp = authenticate_user(
+        None,
+        LoginRequest(
+            correo="admin@alervi.test",
+            password="Dev-2026-ALERVI",
+            codigo_mfa="482910",
+        ),
+    )
+    assert resp.access_token is not None
+    assert resp.usuario.rol == "administrador"

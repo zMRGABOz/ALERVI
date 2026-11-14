@@ -16,7 +16,16 @@ Documentacion interactiva:
 
 from typing import List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Path, Query, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    HTTPException,
+    Path,
+    Query,
+    UploadFile,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 
 try:
@@ -253,7 +262,15 @@ async def get_puntos_criticos_publicos(
     tags=["Ranking y Analítica"],
     summary="Consultar ranking jerarquizado de puntos críticos",
 )
-async def get_ranking(
+@app.get(
+    "/ranking",
+    response_model=RankingResponse,
+    status_code=status.HTTP_200_OK,
+    tags=["Ranking y Analítica"],
+    summary="Consultar ranking jerarquizado de puntos críticos (alias)",
+    include_in_schema=False,
+)
+def get_ranking(
     comuna: Optional[str] = Query("Concepción", description="Comuna de análisis"),
     anio: Optional[int] = Query(
         None, description="Filtrar cálculo para un año específico (2020-2025)"
@@ -514,13 +531,44 @@ async def update_ficha_inspeccion(
     tags=["Fichas de Inspección"],
     summary="Adjuntar fotografía de evidencia a una ficha",
 )
+@app.post(
+    "/inspections/{id_ficha}/fotos",
+    response_model=FotografiaResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Fichas de Inspección"],
+    summary="Adjuntar fotografía de evidencia a una ficha",
+    include_in_schema=False,
+)
 async def upload_foto_inspeccion(
-    id_ficha: int = Path(...),
+    id_ficha: int = Path(
+        ..., description="Identificador único de la ficha de inspección"
+    ),
+    foto: Optional[UploadFile] = File(
+        None, description="Archivo binario de imagen (JPEG o PNG, máx 5 MB)."
+    ),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    """Adjunta evidencia fotográfica a una ficha de inspección (RF-5, RB-10, RNF-S-7)."""
-    return crud_service.agregar_fotografia_ficha(db, id_ficha)
+    """
+    Adjunta evidencia fotográfica a una ficha de inspección (RF-5, RB-10, RNF-S-7).
+    Sanitiza metadatos EXIF (coordenadas GPS) y guarda en bucket 'fichas' bajo UUID único.
+    """
+    file_bytes = None
+    filename = ""
+    content_type = ""
+    if foto is not None:
+        file_bytes = await foto.read()
+        filename = foto.filename or ""
+        content_type = foto.content_type or ""
+
+    return crud_service.agregar_fotografia_ficha(
+        db,
+        id_ficha,
+        file_bytes=file_bytes,
+        filename=filename,
+        content_type=content_type,
+        current_user=current_user,
+    )
 
 
 @app.get(
@@ -557,7 +605,15 @@ async def get_historial_fichas_punto(
     tags=["Alertas Proximidad"],
     summary="Evaluar telemetría de vehículo para alerta de proximidad",
 )
-async def evaluate_proximity_alert(
+@app.post(
+    "/alerts",
+    response_model=AlertCheckResponse,
+    status_code=status.HTTP_200_OK,
+    tags=["Alertas Proximidad"],
+    summary="Evaluar telemetría de vehículo para alerta de proximidad (alias)",
+    include_in_schema=False,
+)
+def evaluate_proximity_alert(
     payload: AlertCheckRequest,
     db: Session = Depends(get_db),
 ):

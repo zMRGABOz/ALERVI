@@ -375,7 +375,7 @@ def obtener_ranking(
                 puntos_sin_indice=[],
             )
 
-        candidatos: List[dict] = []
+        candidatos = []
         puntos_sin_indice: List[PuntoSinIndiceItem] = []
 
         for row in rows:
@@ -400,23 +400,21 @@ def obtener_ranking(
                     leves=tot_lev,
                 )
                 candidatos.append(
-                    {
-                        "id_punto": row.id_punto,
-                        "nombre_interseccion": f"Intersección #{row.id_punto} ({nombre_comuna_disp})",
-                        "comuna": nombre_comuna_disp,
-                        "lat": round(float(row.lat), 6) if row.lat is not None else 0.0,
-                        "lon": round(float(row.lon), 6) if row.lon is not None else 0.0,
-                        "nivel_riesgo": nivel,
-                        "indice_prioridad": ip,
-                        "severidad_s": s,
-                        "frecuencia_f": f,
-                        "tendencia_t": t,
-                        "contexto_c": c,
-                        "total_siniestros": tot_sin,
-                        "total_fallecidos": tot_fall,
-                        "total_graves": tot_grav,
-                        "estado_indice": "CALCULADO",
-                    }
+                    (
+                        ip,
+                        tot_fall,
+                        tot_grav,
+                        tot_sin,
+                        row.id_punto,
+                        nivel,
+                        s,
+                        f,
+                        t,
+                        c,
+                        round(float(row.lat), 6) if row.lat is not None else 0.0,
+                        round(float(row.lon), 6) if row.lon is not None else 0.0,
+                        nombre_comuna_disp,
+                    )
                 )
             else:
                 puntos_sin_indice.append(
@@ -442,11 +440,11 @@ def obtener_ranking(
         # 5. id_punto ascendente
         candidatos.sort(
             key=lambda x: (
-                -x["indice_prioridad"],
-                -x["total_fallecidos"],
-                -x["total_graves"],
-                -x["total_siniestros"],
-                x["id_punto"],
+                -x[0],
+                -x[1],
+                -x[2],
+                -x[3],
+                x[4],
             )
         )
 
@@ -459,22 +457,22 @@ def obtener_ranking(
         for idx, item in enumerate(puntos_pagina):
             items.append(
                 PuntoRankingItem(
-                    id_punto=item["id_punto"],
+                    id_punto=item[4],
                     posicion_ranking=offset + idx + 1,
-                    nombre_interseccion=item["nombre_interseccion"],
-                    comuna=item["comuna"],
-                    latitud=item["lat"],
-                    longitud=item["lon"],
-                    nivel_riesgo=item["nivel_riesgo"],
-                    indice_prioridad=item["indice_prioridad"],
-                    severidad_s=item["severidad_s"],
-                    frecuencia_f=item["frecuencia_f"],
-                    tendencia_t=item["tendencia_t"],
-                    contexto_c=item["contexto_c"],
-                    total_siniestros=item["total_siniestros"],
-                    total_fallecidos=item["total_fallecidos"],
-                    total_graves=item["total_graves"],
-                    estado_indice=item["estado_indice"],
+                    nombre_interseccion=f"Intersección #{item[4]} ({item[12]})",
+                    comuna=item[12],
+                    latitud=item[10],
+                    longitud=item[11],
+                    nivel_riesgo=item[5],
+                    indice_prioridad=item[0],
+                    severidad_s=item[6],
+                    frecuencia_f=item[7],
+                    tendencia_t=item[8],
+                    contexto_c=item[9],
+                    total_siniestros=item[3],
+                    total_fallecidos=item[1],
+                    total_graves=item[2],
+                    estado_indice="CALCULADO",
                 )
             )
 

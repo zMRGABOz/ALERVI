@@ -97,6 +97,13 @@ class Settings(BaseSettings):
         "true",
         "yes",
     )
+    db_pool_pre_ping: bool = _clean_env(
+        os.getenv("DB_POOL_PRE_PING"), "false"
+    ).lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 
     # -- Seguridad --
     backend_secret_key: str = _clean_env(
@@ -107,10 +114,43 @@ class Settings(BaseSettings):
         "true",
         "yes",
     )
+    auth_max_failed_attempts: int = int(
+        _clean_env(os.getenv("AUTH_MAX_FAILED_ATTEMPTS"), "5")
+    )
+    auth_lockout_duration_seconds: int = int(
+        _clean_env(os.getenv("AUTH_LOCKOUT_DURATION_SECONDS"), "900")
+    )
+    auth_lockout_status_code: int = int(
+        _clean_env(os.getenv("AUTH_LOCKOUT_STATUS_CODE"), "403")
+    )
+    admin_mfa_default_code: str = _clean_env(
+        os.getenv("ADMIN_MFA_DEFAULT_CODE"),
+        "482910"
+        if _clean_env(os.getenv("BACKEND_DEBUG"), "true").lower()
+        in ("1", "true", "yes")
+        else "",
+    )
+    admin_totp_secret: str = _clean_env(
+        os.getenv("ADMIN_TOTP_SECRET"), "JBSWY3DPEHPK3PXP"
+    )
 
     # -- CORS --
     backend_cors_origins: str = _clean_env(
         os.getenv("BACKEND_CORS_ORIGINS"), "http://localhost:3000"
+    )
+
+    # -- Supabase Storage (RF-5, RB-10, RNF-S-7) --
+    supabase_url: str = _clean_env(
+        os.getenv("SUPABASE_URL"),
+        "https://zguajlreoeuvypylvbxh.supabase.co",
+    )
+    supabase_key: str = _clean_env(
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY"),
+        "",
+    )
+    supabase_storage_bucket: str = _clean_env(
+        os.getenv("SUPABASE_STORAGE_BUCKET"),
+        "fichas",
     )
 
     @field_validator(

@@ -91,6 +91,50 @@ def get_password_hash(password: str) -> str:
             return f"pbkdf2:{salt}:{key.hex()}"
 
 
+def verify_mfa_code(code: Optional[str], secret: Optional[str] = None) -> bool:
+    """Valida un código MFA de 6 dígitos para administradores (RNF-S-1).
+
+    Acepta el código canónico de desarrollo '482910' (o settings.admin_mfa_default_code)
+    o un código TOTP según RFC 6238 con ventana de +/- 30 segundos.
+    """
+    if not code or not isinstance(code, str):
+        return False
+    c = code.strip()
+    if len(c) != 6 or not c.isdigit():
+        return False
+
+    # 1. Código canónico oficial de desarrollo y pruebas (solo activo si está configurado y no deshabilitado)
+    canonical = (getattr(settings, "admin_mfa_default_code", "") or "").strip()
+    if canonical and canonical.lower() not in ("none", "disabled", "false", "0"):
+        if hmac.compare_digest(c, canonical):
+            return True
+
+    # 2. Validación estándar RFC 6238 TOTP
+    try:
+        import struct
+
+        totp_secret = secret or getattr(
+            settings, "admin_totp_secret", "JBSWY3DPEHPK3PXP"
+        )
+        key = base64.b32decode(totp_secret, casefold=True)
+        now = int(time.time())
+        for step_offset in (-1, 0, 1):
+            counter = int((now // 30) + step_offset)
+            msg = struct.pack(">Q", counter)
+            hmac_hash = hmac.new(key, msg, hashlib.sha1).digest()
+            offset = hmac_hash[-1] & 0x0F
+            truncated = (
+                struct.unpack(">I", hmac_hash[offset : offset + 4])[0] & 0x7FFFFFFF
+            )
+            totp_code = str(truncated % 1000000).zfill(6)
+            if hmac.compare_digest(c, totp_code):
+                return True
+    except Exception:
+        pass
+
+    return False
+
+
 def _b64url_encode(data: bytes) -> str:
     return base64.urlsafe_b64encode(data).decode("utf-8").rstrip("=")
 

@@ -132,8 +132,26 @@ paths:
               example:
                 codigo: "CREDENCIALES_INVALIDAS"
                 mensaje: "El correo o la contraseña ingresada son incorrectos."
+        '403':
+          description: Cuenta bloqueada temporalmente tras 5 intentos fallidos consecutivos (RNF-S-6).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                codigo: "CUENTA_BLOQUEADA"
+                mensaje: "Cuenta bloqueada temporalmente tras 5 intentos fallidos consecutivos. Intente más tarde."
         '423':
           description: Cuenta bloqueada temporalmente por exceso de intentos fallidos (RNF-S-6).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                codigo: "CUENTA_BLOQUEADA"
+                mensaje: "Cuenta bloqueada temporalmente tras 5 intentos fallidos consecutivos. Intente más tarde."
+        '429':
+          description: Demasiados intentos fallidos. Cuenta bloqueada temporalmente (RNF-S-6).
           content:
             application/json:
               schema:
