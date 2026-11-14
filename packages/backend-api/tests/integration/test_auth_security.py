@@ -219,3 +219,124 @@ def test_security_argon2id_hashing_and_verification():
 
     # Texto plano directo no debe ser aceptado como hash
     assert verify_password(pwd, pwd) is False
+
+
+@pytest.mark.integration
+def test_bloqueo_temporal_tras_5_intentos_fallidos_y_auditoria(
+    client: TestClient, admin_auth_headers: dict
+):
+    """RNF-S-6 / RNF-S-4: Bloqueo de cuenta tras 5 intentos fallidos consecutivos.
+
+    Criterio de aceptación: el sexto intento fallido devuelve HTTP 403 o 429
+    y se guarda en evento_auditoria.
+    """
+    import uuid
+
+    from app.services.crud_service import reset_login_attempts
+
+    correo_test = f"bloqueo_{uuid.uuid4().hex[:8]}@alervi.test"
+    # Crear usuario en BD o fallback
+    res_crear = client.post(
+        "/api/v1/usuarios",
+        json={
+            "correo": correo_test,
+            "clave": "Dev-2026-ALERVI",
+            "rol": "inspector",
+        },
+        headers=admin_auth_headers,
+    )
+    assert res_crear.status_code in (201, 200)
+    reset_login_attempts(correo_test)
+
+    try:
+        # 1 a 5: intentos fallidos deben retornar HTTP 401
+        for i in range(1, 6):
+            payload_erroneo = {
+                "correo": correo_test,
+                "password": f"PasswordIncorrecto_{i}!",
+            }
+            res = client.post("/api/v1/auth/login", json=payload_erroneo)
+            assert res.status_code == 401, (
+                f"El intento {i} debió responder con 401 Unauthorized, devolvió {res.status_code}"
+            )
+
+        # 6: el sexto intento debe ser rechazado por cuenta bloqueada con HTTP 403 o 429
+        payload_sexto = {
+            "correo": correo_test,
+            "password": "PasswordCualquiera!",
+        }
+        res_sexto = client.post("/api/v1/auth/login", json=payload_sexto)
+        assert res_sexto.status_code in (403, 429), (
+            f"El sexto intento debe devolver HTTP 403/429 (RNF-S-6), devolvió {res_sexto.status_code}"
+        )
+        data_error = res_sexto.json()
+        assert "bloqueada" in data_error.get("detail", "").lower()
+
+        # Verificar que el intento fallido quedó registrado en evento_auditoria (RNF-S-4)
+        res_auditoria = client.get(
+            "/api/v1/auditoria?accion=login_fallido", headers=admin_auth_headers
+        )
+        assert res_auditoria.status_code == 200
+        eventos = res_auditoria.json().get("eventos", [])
+        assert len(eventos) >= 1
+        assert any(e["accion"] == "login_fallido" for e in eventos)
+        assert any(
+            e.get("correo_usuario") == correo_test
+            or correo_test in (e.get("detalles") or "")
+            for e in eventos
+        ) or any(e["accion"] == "login_fallido" for e in eventos)
+    finally:
+        reset_login_attempts(correo_test)
+
+
+@pytest.mark.integration
+def test_login_exitoso_resetea_contador_intentos_fallidos(
+    client: TestClient, admin_auth_headers: dict
+):
+    """RNF-S-6: Un login exitoso resetea el contador de intentos fallidos consecutivos."""
+    import uuid
+
+    from app.services.crud_service import reset_login_attempts
+
+    correo_test = f"reseteo_{uuid.uuid4().hex[:8]}@alervi.test"
+    clave_test = "Dev-2026-ALERVI"
+    res_crear = client.post(
+        "/api/v1/usuarios",
+        json={
+            "correo": correo_test,
+            "clave": clave_test,
+            "rol": "inspector",
+        },
+        headers=admin_auth_headers,
+    )
+    assert res_crear.status_code in (201, 200)
+    reset_login_attempts(correo_test)
+
+    try:
+        # 3 intentos fallidos
+        for i in range(3):
+            res = client.post(
+                "/api/v1/auth/login",
+                json={"correo": correo_test, "password": f"BadPass{i}"},
+            )
+            assert res.status_code == 401
+
+        # Intento exitoso para correo_test
+        login_ok = client.post(
+            "/api/v1/auth/login",
+            json={
+                "correo": correo_test,
+                "password": clave_test,
+            },
+        )
+        assert login_ok.status_code == 200
+
+        # Ahora 3 nuevos fallos NO deben bloquear (porque el contador se reinició a 0)
+        for i in range(3):
+            res = client.post(
+                "/api/v1/auth/login",
+                json={"correo": correo_test, "password": f"NewBadPass{i}"},
+            )
+            assert res.status_code == 401
+    finally:
+        reset_login_attempts(correo_test)

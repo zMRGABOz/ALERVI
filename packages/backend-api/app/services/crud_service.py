@@ -5,11 +5,13 @@ Gestiona usuarios, factores de riesgo, fichas de inspección, fotografías y bit
 """
 
 import logging
-from datetime import date, datetime, timezone
-from typing import List, Optional
+import threading
+from datetime import date, datetime, timedelta, timezone
+from typing import List, Optional, Tuple
 
 from fastapi import HTTPException, status
 
+from app.core.config import settings
 from app.core.security import create_access_token, get_password_hash, verify_password
 from app.models.db_models import (
     EventoAuditoria,
@@ -69,12 +71,243 @@ _PONDERACIONES_VIGENTES = {
 
 
 # ==============================================================================
+# GESTOR DE INTENTOS Y BLOQUEO TEMPORAL DE CUENTA (RNF-S-6)
+# ==============================================================================
+class LoginAttemptTracker:
+    """Gestiona el conteo de intentos fallidos consecutivos de login y el bloqueo temporal (RNF-S-6)."""
+
+    def __init__(
+        self,
+        max_attempts: int = 5,
+        lockout_duration_seconds: int = 900,
+    ):
+        self.max_attempts = max_attempts
+        self.lockout_duration_seconds = lockout_duration_seconds
+        self._lock = threading.Lock()
+        self._records: dict = {}
+
+    def is_locked(self, correo: str) -> bool:
+        """Determina si la cuenta asociada al correo está temporalmente bloqueada."""
+        c = (correo or "").strip().lower()
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            rec = self._records.get(c)
+            if not rec:
+                return False
+            bloqueado_hasta = rec.get("bloqueado_hasta")
+            if bloqueado_hasta:
+                if now < bloqueado_hasta:
+                    return True
+                # El bloqueo temporal ha expirado: desbloquear automáticamente
+                del self._records[c]
+                return False
+            return False
+
+    def register_failed_attempt(self, correo: str) -> Tuple[int, bool]:
+        """Registra un intento fallido consecutivo. Retorna (intentos_consecutivos, esta_bloqueado)."""
+        c = (correo or "").strip().lower()
+        now = datetime.now(timezone.utc)
+        with self._lock:
+            rec = self._records.get(c)
+            if not rec:
+                rec = {
+                    "intentos": 1,
+                    "bloqueado_hasta": None,
+                    "ultimo_fallo": now,
+                }
+                self._records[c] = rec
+                return 1, False
+
+            bloqueado_hasta = rec.get("bloqueado_hasta")
+            if bloqueado_hasta and now < bloqueado_hasta:
+                return rec["intentos"], True
+
+            if bloqueado_hasta and now >= bloqueado_hasta:
+                rec["intentos"] = 0
+                rec["bloqueado_hasta"] = None
+
+            rec["intentos"] += 1
+            rec["ultimo_fallo"] = now
+
+            if rec["intentos"] >= self.max_attempts:
+                rec["bloqueado_hasta"] = now + timedelta(
+                    seconds=self.lockout_duration_seconds
+                )
+                return rec["intentos"], True
+
+            return rec["intentos"], False
+
+    def reset_attempts(self, correo: str) -> None:
+        """Reinicia el historial de intentos fallidos de un correo."""
+        c = (correo or "").strip().lower()
+        with self._lock:
+            if c in self._records:
+                del self._records[c]
+
+    def reset_all(self) -> None:
+        """Limpia todo el estado de bloqueo en memoria."""
+        with self._lock:
+            self._records.clear()
+
+
+_login_tracker = LoginAttemptTracker(
+    max_attempts=getattr(settings, "auth_max_failed_attempts", 5),
+    lockout_duration_seconds=getattr(settings, "auth_lockout_duration_seconds", 900),
+)
+
+
+def reset_login_attempts(correo: Optional[str] = None) -> None:
+    """Reinicia el historial de intentos fallidos (para tests o desbloqueo administrativo)."""
+    if correo:
+        _login_tracker.reset_attempts(correo)
+    else:
+        _login_tracker.reset_all()
+
+
+# Buffer en memoria de eventos de auditoría (para contingencia, tests sin BD o sincronización)
+_AUDIT_EVENTS_FALLBACK: List[EventoAuditoriaResponse] = []
+
+
+def registrar_evento_auditoria(
+    db: Optional[Session],
+    accion: str,
+    id_usuario: Optional[int] = None,
+    correo_usuario: Optional[str] = None,
+    entidad_afectada: Optional[str] = None,
+    id_afectado: Optional[int] = None,
+    detalles: Optional[str] = None,
+) -> Optional[EventoAuditoria]:
+    """Registra de forma inmutable un evento en la tabla `evento_auditoria` (RNF-S-4)."""
+    now = datetime.now(timezone.utc)
+    ev_response = EventoAuditoriaResponse(
+        id_evento=1000 + len(_AUDIT_EVENTS_FALLBACK) + 1,
+        id_usuario=id_usuario,
+        correo_usuario=correo_usuario or "sistema@alervi.test",
+        accion=accion,
+        entidad_afectada=entidad_afectada,
+        id_afectado=str(id_afectado) if id_afectado is not None else None,
+        fecha_hora=now.isoformat(),
+        detalles=detalles
+        or f"Acción {accion} registrada en {entidad_afectada or 'sistema'}.",
+    )
+    _AUDIT_EVENTS_FALLBACK.insert(0, ev_response)
+
+    if db is not None:
+        try:
+            nuevo_evento = EventoAuditoria(
+                id_usuario=id_usuario,
+                accion=accion,
+                fecha_hora=now,
+                entidad_afectada=entidad_afectada,
+                id_afectado=id_afectado,
+            )
+            db.add(nuevo_evento)
+            db.commit()
+            db.refresh(nuevo_evento)
+            return nuevo_evento
+        except (OperationalError, Exception) as exc:
+            logger.warning(
+                "No fue posible persistir evento_auditoria en BD (%s: %s). Almacenado en buffer en memoria.",
+                type(exc).__name__,
+                exc,
+            )
+            try:
+                db.rollback()
+            except Exception:
+                pass
+    return None
+
+
+# ==============================================================================
 # AUTENTICACIÓN Y USUARIOS
 # ==============================================================================
 def authenticate_user(db: Session, payload: LoginRequest) -> LoginResponse:
-    """Valida credenciales de funcionario municipal (RF-9, TC-30)."""
+    """Valida credenciales de funcionario municipal con bloqueo temporal tras 5 fallos consecutivos (RF-9, RNF-S-6, RNF-S-4, TC-30)."""
     correo_req = (payload.correo or "").strip().lower()
     password_req = payload.password or ""
+
+    status_bloqueo = getattr(
+        settings, "auth_lockout_status_code", status.HTTP_403_FORBIDDEN
+    )
+
+    # 1. Verificar si la cuenta se encuentra temporalmente bloqueada
+    if _login_tracker.is_locked(correo_req):
+        logger.warning(
+            "Intento de inicio de sesión rechazado: la cuenta '%s' está bloqueada temporalmente por 5 intentos fallidos consecutivos.",
+            correo_req,
+        )
+        user_id = None
+        if db is not None:
+            try:
+                user_found = (
+                    db.query(Usuario).filter(Usuario.correo == correo_req).first()
+                )
+                if user_found:
+                    user_id = user_found.id_usuario
+            except Exception:
+                pass
+        if (
+            user_id is None
+            and db is None
+            and ("admin" in correo_req or "inspector" in correo_req)
+        ):
+            user_id = 1 if "admin" in correo_req else 2
+
+        # Auditar intento sobre cuenta bloqueada en evento_auditoria
+        registrar_evento_auditoria(
+            db=db,
+            accion="login_fallido",
+            id_usuario=user_id,
+            correo_usuario=correo_req,
+            entidad_afectada="usuario" if user_id is not None else None,
+            id_afectado=user_id,
+            detalles="Intento de acceso rechazado: cuenta bloqueada temporalmente tras 5 intentos fallidos consecutivos (RNF-S-6).",
+        )
+        raise HTTPException(
+            status_code=status_bloqueo,
+            detail="Cuenta bloqueada temporalmente tras 5 intentos fallidos consecutivos. Intente más tarde.",
+            headers={
+                "Retry-After": str(
+                    getattr(settings, "auth_lockout_duration_seconds", 900)
+                )
+            },
+        )
+
+    # Helper para gestionar intentos fallidos
+    def _auth_failed(user_obj: Optional[Usuario] = None):
+        uid = user_obj.id_usuario if user_obj else None
+        if (
+            uid is None
+            and db is None
+            and ("admin" in correo_req or "inspector" in correo_req)
+        ):
+            uid = 1 if "admin" in correo_req else 2
+
+        intentos, is_now_locked = _login_tracker.register_failed_attempt(correo_req)
+        logger.warning(
+            "Contraseña/credenciales incorrectas para '%s' (intento fallido consecutivo: %s).",
+            correo_req,
+            intentos,
+        )
+        detalles_msg = (
+            f"Intento fallido de login ({intentos}/{getattr(settings, 'auth_max_failed_attempts', 5)})."
+            if not is_now_locked
+            else "Cuenta bloqueada temporalmente tras alcanzar 5 intentos fallidos consecutivos (RNF-S-6)."
+        )
+        registrar_evento_auditoria(
+            db=db,
+            accion="login_fallido",
+            id_usuario=uid,
+            correo_usuario=correo_req,
+            entidad_afectada="usuario" if uid is not None else None,
+            id_afectado=uid,
+            detalles=detalles_msg,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales incorrectas: correo o contraseña inválida",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     if db is not None:
         try:
@@ -85,14 +318,19 @@ def authenticate_user(db: Session, payload: LoginRequest) -> LoginResponse:
             )
             if user:
                 if not verify_password(password_req, user.hash_clave):
-                    logger.warning(
-                        "Contraseña incorrecta para usuario '%s'.", correo_req
-                    )
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Credenciales incorrectas: correo o contraseña inválida",
-                        headers={"WWW-Authenticate": "Bearer"},
-                    )
+                    _auth_failed(user)
+
+                # Éxito: resetear contador de fallos
+                _login_tracker.reset_attempts(correo_req)
+                registrar_evento_auditoria(
+                    db=db,
+                    accion="login_ok",
+                    id_usuario=user.id_usuario,
+                    correo_usuario=user.correo,
+                    entidad_afectada="usuario",
+                    id_afectado=user.id_usuario,
+                    detalles="Inicio de sesión exitoso.",
+                )
 
                 token = create_access_token(
                     {
@@ -117,11 +355,7 @@ def authenticate_user(db: Session, payload: LoginRequest) -> LoginResponse:
                 )
 
             logger.info("Usuario '%s' no encontrado en BD.", correo_req)
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Credenciales incorrectas: correo o contraseña inválida",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+            _auth_failed(None)
         except HTTPException:
             raise
         except (OperationalError, Exception) as exc:
@@ -142,15 +376,23 @@ def authenticate_user(db: Session, payload: LoginRequest) -> LoginResponse:
         or verify_password(password_req, fallback_hash_bcrypt)
         or verify_password(password_req, fallback_hash_pbkdf2)
     ):
-        logger.warning("Credenciales incorrectas en fallback para '%s'.", correo_req)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciales incorrectas: correo o contraseña inválida",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        _auth_failed(None)
 
     uid = 1 if "admin" in correo_req else 2
     rol = "administrador" if "admin" in correo_req else "inspector"
+
+    # Éxito en fallback: resetear contador de fallos
+    _login_tracker.reset_attempts(correo_req)
+    registrar_evento_auditoria(
+        db=db,
+        accion="login_ok",
+        id_usuario=uid,
+        correo_usuario=correo_req,
+        entidad_afectada="usuario",
+        id_afectado=uid,
+        detalles="Inicio de sesión exitoso en modo contingencia.",
+    )
+
     token = create_access_token(
         {
             "sub": str(uid),
@@ -910,21 +1152,33 @@ def listar_eventos_auditoria(
     offset: int = 0,
 ) -> AuditoriaListResponse:
     """Consulta la bitácora inmutable de eventos de auditoría."""
-    fallback_resp = AuditoriaListResponse(
-        total=1,
-        eventos=[
-            EventoAuditoriaResponse(
-                id_evento=1042,
-                id_usuario=2,
-                correo_usuario="inspector@alervi.test",
-                accion=accion or "ficha_crear",
-                entidad_afectada="FICHA_INSPECCION",
-                id_afectado="15",
-                fecha_hora="2026-11-02T16:30:00Z",
-                detalles="Creación de ficha técnica en punto 101 con factores de riesgo asociados.",
-            )
-        ],
-    )
+    # Eventos por defecto o buffer en memoria
+    if _AUDIT_EVENTS_FALLBACK:
+        eventos_mem = list(_AUDIT_EVENTS_FALLBACK)
+        if accion:
+            eventos_mem = [e for e in eventos_mem if e.accion.lower() == accion.lower()]
+        if id_usuario:
+            eventos_mem = [e for e in eventos_mem if e.id_usuario == id_usuario]
+        fallback_resp = AuditoriaListResponse(
+            total=len(eventos_mem),
+            eventos=eventos_mem[offset : offset + limit],
+        )
+    else:
+        fallback_resp = AuditoriaListResponse(
+            total=1,
+            eventos=[
+                EventoAuditoriaResponse(
+                    id_evento=1042,
+                    id_usuario=2,
+                    correo_usuario="inspector@alervi.test",
+                    accion=accion or "ficha_crear",
+                    entidad_afectada="FICHA_INSPECCION",
+                    id_afectado="15",
+                    fecha_hora="2026-11-02T16:30:00Z",
+                    detalles="Creación de ficha técnica en punto 101 con factores de riesgo asociados.",
+                )
+            ],
+        )
 
     if db is not None:
         try:
@@ -957,7 +1211,11 @@ def listar_eventos_auditoria(
                             fecha_hora=e.fecha_hora.isoformat()
                             if e.fecha_hora
                             else datetime.now(timezone.utc).isoformat(),
-                            detalles=f"Acción {e.accion} registrada en {e.entidad_afectada or 'sistema'}.",
+                            detalles=(
+                                f"Acción {e.accion} para {e.usuario.correo} registrada en {e.entidad_afectada or 'sistema'}."
+                                if e.usuario
+                                else f"Acción {e.accion} registrada en {e.entidad_afectada or 'sistema'}."
+                            ),
                         )
                         for e in eventos
                     ],

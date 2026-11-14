@@ -107,6 +107,15 @@ class Settings(BaseSettings):
         "true",
         "yes",
     )
+    auth_max_failed_attempts: int = int(
+        _clean_env(os.getenv("AUTH_MAX_FAILED_ATTEMPTS"), "5")
+    )
+    auth_lockout_duration_seconds: int = int(
+        _clean_env(os.getenv("AUTH_LOCKOUT_DURATION_SECONDS"), "900")
+    )
+    auth_lockout_status_code: int = int(
+        _clean_env(os.getenv("AUTH_LOCKOUT_STATUS_CODE"), "403")
+    )
 
     # -- CORS --
     backend_cors_origins: str = _clean_env(
