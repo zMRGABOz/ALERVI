@@ -219,3 +219,103 @@ def test_security_argon2id_hashing_and_verification():
 
     # Texto plano directo no debe ser aceptado como hash
     assert verify_password(pwd, pwd) is False
+
+
+@pytest.mark.integration
+def test_tc04_carga_sin_permiso_administrador_denegada(
+    client: TestClient, auth_headers: dict
+):
+    """TC-04: Carga solicitada sin token o con rol Inspector debe denegarse (401/403)."""
+    payload = {
+        "fuente": "CONASET_ARCGIS",
+        "anio": 2024,
+        "descripcion": "Intento no autorizado",
+        "registros": [
+            {
+                "latitud": -36.8271,
+                "longitud": -73.0543,
+                "cantidad_siniestros": 1,
+            }
+        ],
+    }
+    res_anon = client.post("/api/v1/cargas", json=payload)
+    assert res_anon.status_code in (401, 403)
+
+    res_inspector = client.post("/api/v1/cargas", json=payload, headers=auth_headers)
+    assert res_inspector.status_code == 403
+
+
+@pytest.mark.integration
+def test_tc12_ponderaciones_sin_permiso_rechazadas(
+    client: TestClient, auth_headers: dict
+):
+    """TC-12: Actualización de ponderaciones sin rol administrador debe rechazarse."""
+    pesos = {
+        "w_severidad": 0.40,
+        "w_frecuencia": 0.25,
+        "w_tendencia": 0.20,
+        "w_contexto": 0.15,
+    }
+    res_anon = client.put("/api/v1/factores/ponderaciones", json=pesos)
+    assert res_anon.status_code in (401, 403)
+
+    res_inspector = client.put(
+        "/api/v1/factores/ponderaciones", json=pesos, headers=auth_headers
+    )
+    assert res_inspector.status_code == 403
+
+
+@pytest.mark.integration
+@pytest.mark.xfail(
+    strict=False,
+    reason="TC-17 / RBAC: POST /api/v1/inspections aún no restringe la creación al rol inspector",
+)
+def test_tc17_creacion_ficha_por_administrador_denegada(
+    client: TestClient, admin_auth_headers: dict
+):
+    """TC-17: Rol Administrador no puede crear fichas de terreno (HTTP 403)."""
+    res_admin = client.post(
+        "/api/v1/inspections",
+        json={
+            "id_punto": 101,
+            "fecha_visita": "2026-11-02",
+            "notas": "Intento de administrador",
+            "factores_riesgo_ids": [1],
+        },
+        headers=admin_auth_headers,
+    )
+    assert res_admin.status_code == 403
+
+
+@pytest.mark.integration
+def test_tc19_historial_denegado_usuario_publico(client: TestClient):
+    """TC-19: Usuario Público (sin token) no debe acceder al historial interno de fichas."""
+    response = client.get("/api/v1/puntos/101/fichas")
+    assert response.status_code in (401, 403)
+
+
+@pytest.mark.integration
+@pytest.mark.xfail(
+    strict=False,
+    reason="TC-32 / RNF-S-6: Bloqueo temporal tras 5 intentos fallidos aún no implementado",
+)
+def test_tc32_bloqueo_tras_cinco_intentos_fallidos(client: TestClient):
+    """TC-32 / RNF-S-6: Cinco intentos fallidos consecutivos bloquean el sexto intento."""
+    payload = {
+        "correo": "bloqueo.qa@alervi.test",
+        "password": "PasswordErronea!",
+    }
+    for _ in range(5):
+        client.post("/api/v1/auth/login", json=payload)
+
+    sexto = client.post("/api/v1/auth/login", json=payload)
+    assert sexto.status_code in (403, 423, 429)
+
+
+@pytest.mark.integration
+def test_tc34_matriz_permisos_por_rol(client: TestClient, auth_headers: dict):
+    """TC-34: Inspector no debe acceder a gestión de usuarios ni auditoría (HTTP 403)."""
+    res_usuarios = client.get("/api/v1/usuarios", headers=auth_headers)
+    res_auditoria = client.get("/api/v1/auditoria", headers=auth_headers)
+    assert res_usuarios.status_code == 403
+    assert res_auditoria.status_code == 403
