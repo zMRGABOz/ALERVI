@@ -4,6 +4,7 @@ Pruebas unitarias para spatial_service y crud_service.
 Garantiza cobertura > 85% sobre la logica de negocio, queries PostGIS y CRUD.
 """
 
+import uuid
 from datetime import date, datetime, timezone
 from unittest.mock import MagicMock
 
@@ -640,7 +641,10 @@ def test_crud_fichas_y_fotografias():
     # Adjuntar fotografia
     foto_res = crud_service.agregar_fotografia_ficha(mock_db, 10)
     assert foto_res.id_ficha == 10
-    assert "inspecciones/10/" in foto_res.ruta
+    uuid_str = foto_res.ruta.split(".")[0]
+    assert uuid.UUID(uuid_str)
+    assert foto_res.url is not None
+    assert "/fichas/" in foto_res.url
 
     # Fallback con db=None
     f_none = crud_service.obtener_ficha_por_id(None, 999)

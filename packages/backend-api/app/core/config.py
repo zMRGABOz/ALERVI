@@ -128,6 +128,20 @@ class Settings(BaseSettings):
         os.getenv("BACKEND_CORS_ORIGINS"), "http://localhost:3000"
     )
 
+    # -- Supabase Storage (RF-5, RB-10, RNF-S-7) --
+    supabase_url: str = _clean_env(
+        os.getenv("SUPABASE_URL"),
+        "https://zguajlreoeuvypylvbxh.supabase.co",
+    )
+    supabase_key: str = _clean_env(
+        os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY"),
+        "",
+    )
+    supabase_storage_bucket: str = _clean_env(
+        os.getenv("SUPABASE_STORAGE_BUCKET"),
+        "fichas",
+    )
+
     @field_validator(
         "db_pool_size",
         "db_max_overflow",
