@@ -26,6 +26,7 @@ except ImportError:
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.security import get_current_user, require_admin
 from app.schemas.api_models import (
     AlertCheckRequest,
     AlertCheckResponse,
@@ -133,6 +134,7 @@ async def list_usuarios(
     limit: Optional[int] = Query(20, description="Límite de registros"),
     offset: Optional[int] = Query(0, description="Desplazamiento"),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(require_admin),
 ):
     """Administra cuentas de usuario y asignación de roles. Exclusivo Administrador (RF-9)."""
     return crud_service.listar_usuarios(
@@ -147,7 +149,11 @@ async def list_usuarios(
     tags=["Gestión de Usuarios"],
     summary="Crear una nueva cuenta de usuario municipal",
 )
-async def create_usuario(payload: UsuarioCreateRequest, db: Session = Depends(get_db)):
+async def create_usuario(
+    payload: UsuarioCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_admin),
+):
     """Registra una nueva cuenta de funcionario con rol Inspector o Administrador (RF-9)."""
     return crud_service.crear_usuario(db, payload)
 
@@ -159,7 +165,11 @@ async def create_usuario(payload: UsuarioCreateRequest, db: Session = Depends(ge
     tags=["Gestión de Usuarios"],
     summary="Consultar detalle de un usuario municipal",
 )
-async def get_usuario_by_id(id_usuario: int = Path(...), db: Session = Depends(get_db)):
+async def get_usuario_by_id(
+    id_usuario: int = Path(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_admin),
+):
     """Consulta técnica de una cuenta de usuario municipal por ID."""
     u = crud_service.obtener_usuario_por_id(db, id_usuario)
     if not u:
@@ -180,6 +190,7 @@ async def update_usuario(
     id_usuario: int = Path(...),
     payload: UsuarioUpdateRequest = ...,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(require_admin),
 ):
     """Actualiza rol, clave o estado activo de un funcionario (RF-9)."""
     u = crud_service.actualizar_usuario(db, id_usuario, payload)
@@ -203,6 +214,7 @@ async def update_usuario(
 async def cargar_datos_viales(
     payload: CargaDatosBatchRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(require_admin),
 ):
     """Carga antecedentes viales, registra fuentes y valida registros territoriales (RF-1)."""
     return crud_service.procesar_carga_vial(db, payload)
@@ -247,21 +259,41 @@ async def get_ranking(
         None, description="Filtrar cálculo para un año específico (2020-2025)"
     ),
     periodo_inicio: Optional[int] = Query(
-        2020, description="Año de inicio del rango temporal analizado"
+        None, description="Año de inicio del rango temporal analizado"
     ),
     periodo_fin: Optional[int] = Query(
-        2025, description="Año de término del rango temporal analizado"
+        None, description="Año de término del rango temporal analizado"
     ),
     limit: Optional[int] = Query(10, description="Cantidad de puntos a retornar"),
     offset: Optional[int] = Query(0, description="Desplazamiento para paginación"),
     db: Session = Depends(get_db),
 ):
     """Ranking ordenado de puntos con su índice; filtros por comuna y período (RF-3)."""
+    if anio is not None:
+        if (periodo_inicio is not None and periodo_inicio != anio) or (
+            periodo_fin is not None and periodo_fin != anio
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Parámetros temporales contradictorios: no se puede especificar 'anio' junto con un intervalo diferente.",
+            )
+        p_ini = anio
+        p_fin = anio
+    else:
+        p_ini = periodo_inicio if periodo_inicio is not None else 2020
+        p_fin = periodo_fin if periodo_fin is not None else 2025
+        if p_ini > p_fin:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El año de inicio (periodo_inicio) no puede ser mayor que el año de fin (periodo_fin).",
+            )
+
     return spatial_service.obtener_ranking(
         db,
         comuna=comuna,
-        periodo_inicio=periodo_inicio or 2020,
-        periodo_fin=periodo_fin or 2025,
+        anio=anio,
+        periodo_inicio=p_ini,
+        periodo_fin=p_fin,
         limit=limit or 10,
         offset=offset or 0,
     )
@@ -318,8 +350,18 @@ async def list_factores_riesgo(
     tags=["Factores y Ponderaciones"],
     summary="Registrar nuevo factor de riesgo",
 )
+@app.post(
+    "/api/v1/factores-riesgo",
+    response_model=FactorRiesgoDto,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Factores y Ponderaciones"],
+    summary="Registrar nuevo factor de riesgo",
+    include_in_schema=False,
+)
 async def create_factor_riesgo(
-    payload: FactorRiesgoCreateRequest, db: Session = Depends(get_db)
+    payload: FactorRiesgoCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_admin),
 ):
     """Registra un nuevo factor de riesgo en el catálogo municipal (RF-4)."""
     return crud_service.crear_factor_riesgo(db, payload)
@@ -332,10 +374,19 @@ async def create_factor_riesgo(
     tags=["Factores y Ponderaciones"],
     summary="Modificar o activar/desactivar factor de riesgo",
 )
+@app.patch(
+    "/api/v1/factores-riesgo/{id_factor}",
+    response_model=FactorRiesgoDto,
+    status_code=status.HTTP_200_OK,
+    tags=["Factores y Ponderaciones"],
+    summary="Modificar o activar/desactivar factor de riesgo",
+    include_in_schema=False,
+)
 async def update_factor_riesgo(
     id_factor: int = Path(...),
     payload: FactorRiesgoUpdateRequest = ...,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(require_admin),
 ):
     """Actualiza descripción o estado activo de un factor (RF-4)."""
     f = crud_service.actualizar_factor_riesgo(db, id_factor, payload)
@@ -354,6 +405,14 @@ async def update_factor_riesgo(
     tags=["Factores y Ponderaciones"],
     summary="Consultar ponderaciones vigentes del índice",
 )
+@app.get(
+    "/api/v1/ponderaciones",
+    response_model=PonderacionesScoringDto,
+    status_code=status.HTTP_200_OK,
+    tags=["Factores y Ponderaciones"],
+    summary="Consultar ponderaciones vigentes del índice",
+    include_in_schema=False,
+)
 async def get_ponderaciones_vigentes(db: Session = Depends(get_db)):
     """Retorna la configuración activa de pesos del índice multicriterio (RF-4, RB-8)."""
     return crud_service.obtener_ponderaciones()
@@ -366,8 +425,18 @@ async def get_ponderaciones_vigentes(db: Session = Depends(get_db)):
     tags=["Factores y Ponderaciones"],
     summary="Calibrar y versionar ponderaciones del índice",
 )
+@app.put(
+    "/api/v1/ponderaciones",
+    response_model=PonderacionesScoringDto,
+    status_code=status.HTTP_200_OK,
+    tags=["Factores y Ponderaciones"],
+    summary="Calibrar y versionar ponderaciones del índice",
+    include_in_schema=False,
+)
 async def update_ponderaciones(
-    payload: PonderacionesUpdateRequest, db: Session = Depends(get_db)
+    payload: PonderacionesUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_admin),
 ):
     """Calibra y versiona las ponderaciones del índice de priorización (RF-4, RB-8)."""
     return crud_service.calibrar_ponderaciones(payload)
@@ -386,9 +455,9 @@ async def update_ponderaciones(
 async def create_ficha_inspeccion(
     payload: FichaInspeccionCreateRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
-    """Crea una ficha de inspección asociada a un punto con factores y observaciones (RF-5)."""
-    return crud_service.crear_ficha_inspeccion(db, payload)
+    return crud_service.crear_ficha_inspeccion(db, payload, current_user=current_user)
 
 
 @app.get(
@@ -399,7 +468,9 @@ async def create_ficha_inspeccion(
     summary="Consultar detalle de una ficha de inspección",
 )
 async def get_ficha_inspeccion_by_id(
-    id_ficha: int = Path(...), db: Session = Depends(get_db)
+    id_ficha: int = Path(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Retorna la información completa de una ficha de inspección técnica."""
     f = crud_service.obtener_ficha_por_id(db, id_ficha)
@@ -422,9 +493,12 @@ async def update_ficha_inspeccion(
     id_ficha: int = Path(...),
     payload: FichaInspeccionUpdateRequest = ...,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Actualiza observaciones de una ficha existente de autoría propia (RF-7, RB-11)."""
-    f = crud_service.actualizar_ficha_inspeccion(db, id_ficha, payload)
+    f = crud_service.actualizar_ficha_inspeccion(
+        db, id_ficha, payload, current_user=current_user
+    )
     if not f:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -443,6 +517,7 @@ async def update_ficha_inspeccion(
 async def upload_foto_inspeccion(
     id_ficha: int = Path(...),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Adjunta evidencia fotográfica a una ficha de inspección (RF-5, RB-10, RNF-S-7)."""
     return crud_service.agregar_fotografia_ficha(db, id_ficha)
@@ -455,9 +530,18 @@ async def upload_foto_inspeccion(
     tags=["Fichas de Inspección"],
     summary="Consultar historial cronológico de fichas de un punto crítico",
 )
+@app.get(
+    "/api/v1/puntos/{id_punto}/inspections",
+    response_model=List[FichaInspeccionResponse],
+    status_code=status.HTTP_200_OK,
+    tags=["Fichas de Inspección"],
+    summary="Consultar historial cronológico de inspecciones de un punto crítico",
+    include_in_schema=False,
+)
 async def get_historial_fichas_punto(
     id_punto: int = Path(...),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Consulta el historial de fichas de inspección asociadas a un punto (RF-6, RB-12)."""
     return crud_service.listar_fichas_de_punto(db, id_punto)
@@ -497,6 +581,7 @@ async def get_eventos_auditoria(
     limit: Optional[int] = Query(50, description="Límite de registros"),
     offset: Optional[int] = Query(0, description="Desplazamiento"),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(require_admin),
 ):
     """Consulta el registro y trazabilidad de eventos del sistema. Exclusivo Administrador (RNF-S-4)."""
     return crud_service.listar_eventos_auditoria(

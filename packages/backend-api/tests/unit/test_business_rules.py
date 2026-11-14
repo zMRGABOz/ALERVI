@@ -13,7 +13,9 @@ from fastapi.testclient import TestClient
 
 
 @pytest.mark.integration
-def test_ficha_inspeccion_max_notes_length_validation(client: TestClient):
+def test_ficha_inspeccion_max_notes_length_validation(
+    client: TestClient, auth_headers: dict
+):
     """RB-10: Verifica que una ficha con notas mayores a 500 caracteres sea rechazada con HTTP 422."""
     payload_excedido = {
         "id_punto": 101,
@@ -21,12 +23,14 @@ def test_ficha_inspeccion_max_notes_length_validation(client: TestClient):
         "notas": "A" * 501,
         "factores_riesgo_ids": [1],
     }
-    response = client.post("/api/v1/inspections", json=payload_excedido)
+    response = client.post(
+        "/api/v1/inspections", json=payload_excedido, headers=auth_headers
+    )
     assert response.status_code == 422
 
 
 @pytest.mark.integration
-def test_ficha_inspeccion_valida(client: TestClient):
+def test_ficha_inspeccion_valida(client: TestClient, auth_headers: dict):
     """RF-5 / TC-13: Verifica la creación exitosa de una ficha de inspección válida."""
     payload_valido = {
         "id_punto": 101,
@@ -34,7 +38,9 @@ def test_ficha_inspeccion_valida(client: TestClient):
         "notas": "Inspección técnica en terreno: señalética visible.",
         "factores_riesgo_ids": [1],
     }
-    response = client.post("/api/v1/inspections", json=payload_valido)
+    response = client.post(
+        "/api/v1/inspections", json=payload_valido, headers=auth_headers
+    )
     assert response.status_code == 201
     data = response.json()
     assert "id_ficha" in data
@@ -42,11 +48,7 @@ def test_ficha_inspeccion_valida(client: TestClient):
 
 
 @pytest.mark.integration
-@pytest.mark.xfail(
-    strict=False,
-    reason="Defecto D-2 / TC-14: Pydantic schema de Ficha no tiene validador de fecha no futura; pendiente implementación por Marcos",
-)
-def test_tc14_ficha_fecha_futura_rechazada(client: TestClient):
+def test_tc14_ficha_fecha_futura_rechazada(client: TestClient, auth_headers: dict):
     """TC-14 / RB-10: Verifica que una fecha de visita futura sea rechazada con HTTP 422."""
     payload_futuro = {
         "id_punto": 101,
@@ -54,7 +56,9 @@ def test_tc14_ficha_fecha_futura_rechazada(client: TestClient):
         "notas": "Visita en fecha futura imposible.",
         "factores_riesgo_ids": [1],
     }
-    response = client.post("/api/v1/inspections", json=payload_futuro)
+    response = client.post(
+        "/api/v1/inspections", json=payload_futuro, headers=auth_headers
+    )
     assert response.status_code == 422, (
         f"Fecha futura 2099-01-01 fue aceptada con código {response.status_code}"
     )

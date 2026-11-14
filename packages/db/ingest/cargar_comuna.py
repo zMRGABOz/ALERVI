@@ -6,9 +6,12 @@ import sys
 
 from cargar_conaset import conectar
 
+
 def main():
     # Configuracion inicial del argumentparses
-    ap = argparse.ArgumentParser(description="Carga del poligono de comuna (Formato GeoJSON)")
+    ap = argparse.ArgumentParser(
+        description="Carga del poligono de comuna (Formato GeoJSON)"
+    )
     ap.add_argument("archivo", help="ruta al GeoJSON")
     ap.add_argument("--nombre", default="Concepcion", help="nombre de la comuna")
     ap.add_argument("--codigo", default="08101", help="codigo de la comuna (5 digitos)")
@@ -31,7 +34,7 @@ def main():
             SET nombre = EXCLUDED.nombre, geometry = EXCLUDED.geometry
         RETURNING ST_Area(geometry::geography) / 1e6
         """,
-        (args.codigo, args.nombre, json.dumps(geometria))
+        (args.codigo, args.nombre, json.dumps(geometria)),
     )
     fila = cursor.fetchone()
 
@@ -46,8 +49,13 @@ def main():
     print("===============")
 
     print(f"Comuna {args.codigo}: Area del poligono = {fila[0]:.1f} km2")
-    print("MODO PRUEBA: No se guardó nada en la BD" if args.dry_run else "Guardado en la base de datos")
-    print("")
+    print(
+        "MODO PRUEBA: No se guardó nada en la BD"
+        if args.dry_run
+        else "Guardado en la base de datos"
+    )
+    print()
+
 
 if __name__ == "__main__":
     sys.exit(main())

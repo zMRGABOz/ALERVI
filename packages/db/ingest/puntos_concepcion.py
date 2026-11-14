@@ -1,7 +1,8 @@
 import json
-import requests
-import time
 import os
+import time
+
+import requests
 
 # ==============================================================================
 # SCRIPT DE EXTRACCIÓN DE DATOS Y MÉTRICAS (CONASET) - PROYECTO SIPROV
@@ -18,13 +19,13 @@ ENDPOINT = "https://services3.arcgis.com/vaJl1B5HEzZj7154/arcgis/rest/services/P
 BBOX_GRAN_CONCEPCION = "-73.20,-37.15,-72.85,-36.55"
 
 # Tamaño aproximado por fila de datos en Postgres/PostGIS (geometría + columnas)
-BYTES_PER_ROW_ESTIMATE = 300 
+BYTES_PER_ROW_ESTIMATE = 300
 
 
 def obtener_datos_locales():
     """Descarga los datos del Gran Concepción paginando los resultados."""
     print("--- 1. CONSULTANDO PUNTOS CRÍTICOS (GRAN CONCEPCIÓN) ---")
-    
+
     params = {
         "where": "1=1",
         "geometry": BBOX_GRAN_CONCEPCION,
@@ -37,7 +38,7 @@ def obtener_datos_locales():
         "returnGeometry": "true",
         "resultOffset": 0,
         "resultRecordCount": 2000,
-        "orderByFields": "FID"
+        "orderByFields": "FID",
     }
 
     start_time = time.time()
@@ -49,44 +50,46 @@ def obtener_datos_locales():
         params["resultOffset"] = offset
         page_count += 1
         print(f"Obteniendo página local {page_count} (offset {offset})...")
-        
+
         res = requests.get(ENDPOINT, params=params, timeout=60)
         res.raise_for_status()
         data = res.json()
 
         if "error" in data:
             raise RuntimeError(f"La API devolvio un error: {data['error']}")
-        
+
         features = data.get("features", [])
         if not features:
             break
-            
+
         all_features.extend(features)
-        
+
         # Verificar si la API nos indica que excedimos el límite de transferencia
         exceeded = data.get("properties", {}).get("exceededTransferLimit", False)
         if not exceeded and len(features) < params["resultRecordCount"]:
-            break # No hay más datos
-                 
+            break  # No hay más datos
+
         offset += len(features)
 
     exec_time = time.time() - start_time
-    print(f"-> Total local extraído: {len(all_features)} puntos en {round(exec_time, 2)} s.\n")
-    
+    print(
+        f"-> Total local extraído: {len(all_features)} puntos en {round(exec_time, 2)} s.\n"
+    )
+
     return all_features, exec_time, page_count
 
 
 def obtener_estadisticas_nacionales():
     """Consulta la API de CONASET para obtener métricas nacionales (sin descargar los datos crudos)."""
     print("--- 2. CONSULTANDO ESTADÍSTICAS NACIONALES (PARA ARQUITECTURA) ---")
-    
+
     # Consulta 1: Obtener el conteo total a nivel nacional
     print("Calculando volumen total a nivel nacional...")
-    res_total = requests.get(ENDPOINT, params={
-        "where": "1=1",
-        "returnCountOnly": "true",
-        "f": "json"
-    }, timeout=60)
+    res_total = requests.get(
+        ENDPOINT,
+        params={"where": "1=1", "returnCountOnly": "true", "f": "json"},
+        timeout=60,
+    )
     res_total.raise_for_status()
     total_nacional = res_total.json().get("count", 0)
 
@@ -94,15 +97,21 @@ def obtener_estadisticas_nacionales():
     print("Calculando evolución temporal a nivel nacional...")
     params_stats = {
         "where": "1=1",
-        "outStatistics": json.dumps([
-            {"statisticType": "count", "onStatisticField": "FID", "outStatisticFieldName": "total_count"}
-        ]),
+        "outStatistics": json.dumps(
+            [
+                {
+                    "statisticType": "count",
+                    "onStatisticField": "FID",
+                    "outStatisticFieldName": "total_count",
+                }
+            ]
+        ),
         "groupByFieldsForStatistics": "AÑO",
-        "f": "json"
+        "f": "json",
     }
     res_stats = requests.get(ENDPOINT, params=params_stats, timeout=60)
     res_stats.raise_for_status()
-    
+
     # Procesar resultados y ordenarlos por año
     evolucion_nacional = {}
     features = res_stats.json().get("features", [])
@@ -112,11 +121,11 @@ def obtener_estadisticas_nacionales():
         conteo = attrs.get("total_count")
         if ano is not None:
             evolucion_nacional[ano] = conteo
-            
+
     # Ordenar diccionario
     evolucion_nacional = dict(sorted(evolucion_nacional.items()))
     print(f"-> Total nacional: {total_nacional} puntos.\n")
-    
+
     return total_nacional, evolucion_nacional
 
 
@@ -126,10 +135,7 @@ def procesar_y_guardar():
 
     # 2. Guardar GeoJSON (Solo Gran Concepción)
     output_geojson = "puntos_criticos_gran_concepcion.geojson"
-    final_data = {
-        "type": "FeatureCollection",
-        "features": features_locales
-    }
+    final_data = {"type": "FeatureCollection", "features": features_locales}
     with open(output_geojson, "w", encoding="utf-8") as f:
         json.dump(final_data, f, ensure_ascii=False)
     print(f"Archivo guardado: '{output_geojson}'")
@@ -141,28 +147,44 @@ def procesar_y_guardar():
     for feat in features_locales:
         ano = feat.get("properties", {}).get("AÑO", "Desconocido")
         evolucion_local[ano] = evolucion_local.get(ano, 0) + 1
-    evolucion_local = dict(sorted(evolucion_local.items(), key=lambda item: str(item[0])))
+    evolucion_local = dict(
+        sorted(evolucion_local.items(), key=lambda item: str(item[0]))
+    )
 
     # 4. Calcular tamaños de almacenamiento para justificar Base de Datos
     tamano_bd_local_kb = (len(features_locales) * BYTES_PER_ROW_ESTIMATE) / 1024
     tamano_bd_nacional_kb = (total_nacional * BYTES_PER_ROW_ESTIMATE) / 1024
     tamano_json_local_kb = os.path.getsize(output_geojson) / 1024
     # Estimamos el peso del JSON Nacional asumiendo una proporción directa
-    proporcion = total_nacional / len(features_locales) if len(features_locales) > 0 else 1
+    proporcion = (
+        total_nacional / len(features_locales) if len(features_locales) > 0 else 1
+    )
     tamano_json_nacional_estimado_kb = tamano_json_local_kb * proporcion
-    
+
     # 5. Calcular proyecciones de crecimiento anual (Para E1 - RNF de capacidad)
     # A nivel Nacional
     anos_totales_nac = len(evolucion_nacional)
-    promedio_registros_anual_nac = total_nacional / anos_totales_nac if anos_totales_nac > 0 else 0
-    crecimiento_bd_anual_mb_nac = (promedio_registros_anual_nac * BYTES_PER_ROW_ESTIMATE) / (1024 * 1024)
-    proyeccion_bd_5_anos_mb_nac = (tamano_bd_nacional_kb / 1024) + (crecimiento_bd_anual_mb_nac * 5)
-    
+    promedio_registros_anual_nac = (
+        total_nacional / anos_totales_nac if anos_totales_nac > 0 else 0
+    )
+    crecimiento_bd_anual_mb_nac = (
+        promedio_registros_anual_nac * BYTES_PER_ROW_ESTIMATE
+    ) / (1024 * 1024)
+    proyeccion_bd_5_anos_mb_nac = (tamano_bd_nacional_kb / 1024) + (
+        crecimiento_bd_anual_mb_nac * 5
+    )
+
     # A nivel Local (MVP Gran Concepción)
     anos_totales_loc = len(evolucion_local)
-    promedio_registros_anual_loc = len(features_locales) / anos_totales_loc if anos_totales_loc > 0 else 0
-    crecimiento_bd_anual_mb_loc = (promedio_registros_anual_loc * BYTES_PER_ROW_ESTIMATE) / (1024 * 1024)
-    proyeccion_bd_5_anos_mb_loc = (tamano_bd_local_kb / 1024) + (crecimiento_bd_anual_mb_loc * 5)
+    promedio_registros_anual_loc = (
+        len(features_locales) / anos_totales_loc if anos_totales_loc > 0 else 0
+    )
+    crecimiento_bd_anual_mb_loc = (
+        promedio_registros_anual_loc * BYTES_PER_ROW_ESTIMATE
+    ) / (1024 * 1024)
+    proyeccion_bd_5_anos_mb_loc = (tamano_bd_local_kb / 1024) + (
+        crecimiento_bd_anual_mb_loc * 5
+    )
 
     # 6. Estructurar el diccionario final de métricas
     metricas = {
@@ -176,8 +198,8 @@ def procesar_y_guardar():
             "proyecciones_crecimiento": {
                 "promedio_nuevos_registros_anual": round(promedio_registros_anual_loc),
                 "crecimiento_bd_anual_mb": round(crecimiento_bd_anual_mb_loc, 2),
-                "tamano_proyectado_5_anos_mb": round(proyeccion_bd_5_anos_mb_loc, 2)
-            }
+                "tamano_proyectado_5_anos_mb": round(proyeccion_bd_5_anos_mb_loc, 2),
+            },
         },
         "arquitectura_nacional": {
             "total_registros_historicos": total_nacional,
@@ -187,9 +209,9 @@ def procesar_y_guardar():
             "proyecciones_crecimiento": {
                 "promedio_nuevos_registros_anual": round(promedio_registros_anual_nac),
                 "crecimiento_bd_anual_mb": round(crecimiento_bd_anual_mb_nac, 2),
-                "tamano_proyectado_5_anos_mb": round(proyeccion_bd_5_anos_mb_nac, 2)
-            }
-        }
+                "tamano_proyectado_5_anos_mb": round(proyeccion_bd_5_anos_mb_nac, 2),
+            },
+        },
     }
 
     # 7. Guardar métricas en JSON
@@ -203,19 +225,39 @@ def procesar_y_guardar():
     print("📊 MÉTRICAS PARA INFORME LATEX (E1 / E2 / E4)")
     print("=========================================================")
     print("▶ ESCENARIO PILOTO (Gran Concepción - MVP):")
-    print(f"  - Registros descargados: {metricas['escenario_piloto_concepcion']['total_registros']}")
-    print(f"  - Tamaño real en BD PostGIS: ~{round(tamano_bd_local_kb/1024, 2)} MB")
-    print(f"  - Ingreso promedio de nuevos registros: ~{round(promedio_registros_anual_loc)} por año")
-    print(f"  - Tasa de crecimiento de la Base de Datos: ~{round(crecimiento_bd_anual_mb_loc, 2)} MB / año")
-    print(f"  - Tamaño estimado de la BD en 5 años: ~{round(proyeccion_bd_5_anos_mb_loc, 2)} MB")
-    
+    print(
+        f"  - Registros descargados: {metricas['escenario_piloto_concepcion']['total_registros']}"
+    )
+    print(f"  - Tamaño real en BD PostGIS: ~{round(tamano_bd_local_kb / 1024, 2)} MB")
+    print(
+        f"  - Ingreso promedio de nuevos registros: ~{round(promedio_registros_anual_loc)} por año"
+    )
+    print(
+        f"  - Tasa de crecimiento de la Base de Datos: ~{round(crecimiento_bd_anual_mb_loc, 2)} MB / año"
+    )
+    print(
+        f"  - Tamaño estimado de la BD en 5 años: ~{round(proyeccion_bd_5_anos_mb_loc, 2)} MB"
+    )
+
     print("\n▶ ESCALA NACIONAL (Justificación de Arquitectura):")
-    print(f"  - Total registros a gestionar: {metricas['arquitectura_nacional']['total_registros_historicos']}")
-    print(f"  - Tamaño proyectado en BD PostGIS: ~{round(tamano_bd_nacional_kb/1024, 2)} MB")
-    print(f"  - Tamaño proyectado en GeoJSON: ~{round(tamano_json_nacional_estimado_kb/1024, 2)} MB")
-    print(f"  - Ingreso promedio de nuevos registros: ~{round(promedio_registros_anual_nac)} por año")
-    print(f"  - Tasa de crecimiento de la Base de Datos: ~{round(crecimiento_bd_anual_mb_nac, 2)} MB / año")
-    print(f"  - Tamaño estimado de la BD en 5 años: ~{round(proyeccion_bd_5_anos_mb_nac, 2)} MB")
+    print(
+        f"  - Total registros a gestionar: {metricas['arquitectura_nacional']['total_registros_historicos']}"
+    )
+    print(
+        f"  - Tamaño proyectado en BD PostGIS: ~{round(tamano_bd_nacional_kb / 1024, 2)} MB"
+    )
+    print(
+        f"  - Tamaño proyectado en GeoJSON: ~{round(tamano_json_nacional_estimado_kb / 1024, 2)} MB"
+    )
+    print(
+        f"  - Ingreso promedio de nuevos registros: ~{round(promedio_registros_anual_nac)} por año"
+    )
+    print(
+        f"  - Tasa de crecimiento de la Base de Datos: ~{round(crecimiento_bd_anual_mb_nac, 2)} MB / año"
+    )
+    print(
+        f"  - Tamaño estimado de la BD en 5 años: ~{round(proyeccion_bd_5_anos_mb_nac, 2)} MB"
+    )
     print("=========================================================")
 
 

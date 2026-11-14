@@ -4,20 +4,13 @@ Servicio de operaciones CRUD y persistencia en base de datos para ALERVI.
 Gestiona usuarios, factores de riesgo, fichas de inspección, fotografías y bitácora de auditoría.
 """
 
+import logging
 from datetime import date, datetime, timezone
 from typing import List, Optional
 
-try:
-    from sqlalchemy import desc
-    from sqlalchemy.exc import OperationalError
-    from sqlalchemy.orm import Session
-except ImportError:
-    Session = object  # type: ignore
+from fastapi import HTTPException, status
 
-    class OperationalError(Exception):  # type: ignore
-        pass
-
-
+from app.core.security import create_access_token, get_password_hash, verify_password
 from app.models.db_models import (
     EventoAuditoria,
     FactorRiesgo,
@@ -48,6 +41,19 @@ from app.schemas.api_models import (
     UsuarioUpdateRequest,
 )
 
+try:
+    from sqlalchemy import desc
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.orm import Session
+except ImportError:
+    Session = object  # type: ignore
+
+    class OperationalError(Exception):  # type: ignore
+        pass
+
+
+logger = logging.getLogger("alervi.crud_service")
+
 # Estado en memoria para ponderaciones versionadas
 _PONDERACIONES_VIGENTES = {
     "version": "v1.0-oficial-2026",
@@ -66,8 +72,9 @@ _PONDERACIONES_VIGENTES = {
 # AUTENTICACIÓN Y USUARIOS
 # ==============================================================================
 def authenticate_user(db: Session, payload: LoginRequest) -> LoginResponse:
-    """Valida credenciales de funcionario municipal."""
-    correo_req = (payload.correo or "admin@alervi.test").strip().lower()
+    """Valida credenciales de funcionario municipal (RF-9, TC-30)."""
+    correo_req = (payload.correo or "").strip().lower()
+    password_req = payload.password or ""
 
     if db is not None:
         try:
@@ -77,8 +84,26 @@ def authenticate_user(db: Session, payload: LoginRequest) -> LoginResponse:
                 .first()
             )
             if user:
+                if not verify_password(password_req, user.hash_clave):
+                    logger.warning(
+                        "Contraseña incorrecta para usuario '%s'.", correo_req
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Credenciales incorrectas: correo o contraseña inválida",
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+
+                token = create_access_token(
+                    {
+                        "sub": str(user.id_usuario),
+                        "id_usuario": user.id_usuario,
+                        "correo": user.correo,
+                        "rol": user.rol,
+                    }
+                )
                 return LoginResponse(
-                    access_token=f"jwt.{user.id_usuario}.alervi.valid.token",
+                    access_token=token,
                     token_type="bearer",
                     expires_in=28800,
                     mfa_requerido=False,
@@ -90,19 +115,59 @@ def authenticate_user(db: Session, payload: LoginRequest) -> LoginResponse:
                         fecha_creacion=None,
                     ),
                 )
-        except (OperationalError, Exception):
-            pass
 
-    # Fallback si no hay conexión o usuario no encontrado en mock
+            logger.info("Usuario '%s' no encontrado en BD.", correo_req)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Credenciales incorrectas: correo o contraseña inválida",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        except HTTPException:
+            raise
+        except (OperationalError, Exception) as exc:
+            logger.warning(
+                "Error en consulta de usuario en BD (%s: %s). Verificando en modo contingencia.",
+                type(exc).__name__,
+                exc,
+            )
+
+    # Modo contingencia / pruebas sin BD (db is None o error)
+    fallback_hash_argon2 = "$argon2id$v=19$m=65536,t=3,p=4$Zk8ZbSGjZpc3VTx3KCIZSQ$WSDsfP/3bj+weSQboPvfEnb4r5/XVxvqhy+Yjuf11Ss"
+    fallback_hash_bcrypt = (
+        "$2b$12$FftZVwmTG1VxkseqE1Wy.OT1qUesa6jeaq4Sb.IsJAzKSMhV2NtYO"
+    )
+    fallback_hash_pbkdf2 = "pbkdf2:0011223344556677:4d7cdb895d8c441cadff274e739d73551b276873859caecdd349cdc355d8b2e2"
+    if not (
+        verify_password(password_req, fallback_hash_argon2)
+        or verify_password(password_req, fallback_hash_bcrypt)
+        or verify_password(password_req, fallback_hash_pbkdf2)
+    ):
+        logger.warning("Credenciales incorrectas en fallback para '%s'.", correo_req)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales incorrectas: correo o contraseña inválida",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    uid = 1 if "admin" in correo_req else 2
+    rol = "administrador" if "admin" in correo_req else "inspector"
+    token = create_access_token(
+        {
+            "sub": str(uid),
+            "id_usuario": uid,
+            "correo": correo_req,
+            "rol": rol,
+        }
+    )
     return LoginResponse(
-        access_token="jwt.dev.stub.alervi.token",
+        access_token=token,
         token_type="bearer",
         expires_in=28800,
         mfa_requerido=False,
         usuario=UsuarioResponse(
-            id_usuario=1 if "admin" in correo_req else 2,
+            id_usuario=uid,
             correo=correo_req,
-            rol="administrador" if "admin" in correo_req else "inspector",
+            rol=rol,
             activo=True,
             fecha_creacion=None,
         ),
@@ -158,8 +223,17 @@ def listar_usuarios(
                         for u in usuarios
                     ],
                 )
-        except (OperationalError, Exception):
-            pass
+            logger.info(
+                "Consulta de usuarios sin resultados en BD. Usando lista fallback."
+            )
+        except (OperationalError, Exception) as exc:
+            logger.warning(
+                "Error al listar usuarios en BD (%s: %s). Activando fallback resiliente.",
+                type(exc).__name__,
+                exc,
+            )
+    else:
+        logger.warning("DB no disponible (db is None). Usando usuarios fallback.")
 
     return UsuarioListResponse(total=len(fallback_users), usuarios=fallback_users)
 
@@ -170,7 +244,9 @@ def crear_usuario(db: Session, payload: UsuarioCreateRequest) -> UsuarioResponse
         try:
             nuevo = Usuario(
                 correo=payload.correo.strip().lower(),
-                hash_clave="$2b$12$FftZVwmTG1VxkseqE1Wy.OT1qUesa6jeaq4Sb.IsJAzKSMhV2NtYO",
+                hash_clave=get_password_hash(payload.clave)
+                if payload.clave
+                else get_password_hash("Dev-2026-ALERVI"),
                 rol=payload.rol,
                 activo=True,
             )
@@ -209,8 +285,19 @@ def obtener_usuario_por_id(db: Session, id_usuario: int) -> Optional[UsuarioResp
                     activo=u.activo,
                     fecha_creacion=None,
                 )
-        except (OperationalError, Exception):
-            pass
+            logger.info("Usuario #%s no encontrado en BD. Usando fallback.", id_usuario)
+        except (OperationalError, Exception) as exc:
+            logger.warning(
+                "Error al obtener usuario #%s en BD (%s: %s). Usando fallback.",
+                id_usuario,
+                type(exc).__name__,
+                exc,
+            )
+    else:
+        logger.warning(
+            "DB no disponible (db is None). Usando fallback para usuario #%s.",
+            id_usuario,
+        )
 
     return UsuarioResponse(
         id_usuario=id_usuario,
@@ -242,8 +329,22 @@ def actualizar_usuario(
                     activo=u.activo,
                     fecha_creacion=None,
                 )
-        except (OperationalError, Exception):
-            pass
+            logger.info(
+                "Usuario #%s no encontrado para actualizar en BD. Usando fallback.",
+                id_usuario,
+            )
+        except (OperationalError, Exception) as exc:
+            logger.warning(
+                "Error al actualizar usuario #%s en BD (%s: %s). Usando fallback.",
+                id_usuario,
+                type(exc).__name__,
+                exc,
+            )
+    else:
+        logger.warning(
+            "DB no disponible (db is None). Usando fallback al actualizar usuario #%s.",
+            id_usuario,
+        )
 
     return UsuarioResponse(
         id_usuario=id_usuario,
@@ -310,8 +411,17 @@ def listar_factores_riesgo(
                     )
                     for f in factores
                 ]
-        except (OperationalError, Exception):
-            pass
+            logger.info("Catálogo de factores sin registros en BD. Usando fallback.")
+        except (OperationalError, Exception) as exc:
+            logger.warning(
+                "Error al listar factores de riesgo en BD (%s: %s). Usando catálogo fallback.",
+                type(exc).__name__,
+                exc,
+            )
+    else:
+        logger.warning(
+            "DB no disponible (db is None). Usando catálogo de factores fallback."
+        )
 
     return fallback_factores
 
@@ -449,20 +559,36 @@ def calibrar_ponderaciones(
 # FICHAS DE INSPECCIÓN TÉCNICA
 # ==============================================================================
 def crear_ficha_inspeccion(
-    db: Session, payload: FichaInspeccionCreateRequest
+    db: Session,
+    payload: FichaInspeccionCreateRequest,
+    current_user: Optional[dict] = None,
 ) -> FichaInspeccionResponse:
     """Crea una nueva ficha de inspección asociada a un punto crítico."""
+    id_inspector = 2
+    correo_inspector = "inspector@alervi.test"
+    if current_user:
+        current_uid = current_user.get("id_usuario")
+        if current_uid is None and current_user.get("sub"):
+            try:
+                current_uid = int(current_user["sub"])
+            except (ValueError, TypeError):
+                current_uid = None
+        if current_uid:
+            id_inspector = current_uid
+        if current_user.get("correo"):
+            correo_inspector = current_user["correo"]
+
     if db is not None:
         try:
-            inspector = (
-                db.query(Usuario)
-                .filter(Usuario.rol == "inspector", Usuario.activo.is_(True))
-                .first()
-            )
-            id_inspector = inspector.id_usuario if inspector else 2
-            correo_inspector = (
-                inspector.correo if inspector else "inspector@alervi.test"
-            )
+            if not current_user:
+                inspector = (
+                    db.query(Usuario)
+                    .filter(Usuario.rol == "inspector", Usuario.activo.is_(True))
+                    .first()
+                )
+                if inspector:
+                    id_inspector = inspector.id_usuario
+                    correo_inspector = inspector.correo
 
             ficha = FichaInspeccion(
                 id_punto=payload.id_punto,
@@ -511,8 +637,8 @@ def crear_ficha_inspeccion(
         id_ficha=15,
         id_punto=payload.id_punto,
         nombre_interseccion="Av. Paicaví con Av. Los Carrera",
-        id_inspector=2,
-        correo_inspector="inspector@alervi.test",
+        id_inspector=id_inspector,
+        correo_inspector=correo_inspector,
         fecha_visita=payload.fecha_visita,
         fecha_registro=None,
         notas=payload.notas or "Visita a terreno realizada según protocolo.",
@@ -606,9 +732,12 @@ def obtener_ficha_por_id(
 
 
 def actualizar_ficha_inspeccion(
-    db: Session, id_ficha: int, payload: FichaInspeccionUpdateRequest
+    db: Session,
+    id_ficha: int,
+    payload: FichaInspeccionUpdateRequest,
+    current_user: Optional[dict] = None,
 ) -> Optional[FichaInspeccionResponse]:
-    """Actualiza observaciones y factores de una ficha propia."""
+    """Actualiza observaciones y factores de una ficha propia (RB-11)."""
     if db is not None:
         try:
             f = (
@@ -616,23 +745,70 @@ def actualizar_ficha_inspeccion(
                 .filter(FichaInspeccion.id_ficha == id_ficha)
                 .first()
             )
-            if f:
-                if payload.notas is not None:
-                    f.notas = payload.notas
-                if payload.fecha_visita is not None:
-                    f.fecha_visita = date.fromisoformat(payload.fecha_visita)
-                if payload.factores_riesgo_ids is not None:
-                    factores = (
-                        db.query(FactorRiesgo)
-                        .filter(FactorRiesgo.id_factor.in_(payload.factores_riesgo_ids))
-                        .all()
+            if not f:
+                return None
+
+            # RB-11: Validar autoría propia (o rol administrador)
+            if current_user:
+                current_uid = current_user.get("id_usuario")
+                if current_uid is None and current_user.get("sub"):
+                    try:
+                        current_uid = int(current_user["sub"])
+                    except (ValueError, TypeError):
+                        current_uid = None
+                current_rol = current_user.get("rol")
+                current_correo = (current_user.get("correo") or "").strip().lower()
+                is_author = (
+                    current_uid is not None and f.id_usuario == current_uid
+                ) or (
+                    f.usuario is not None
+                    and current_correo
+                    and (f.usuario.correo or "").strip().lower() == current_correo
+                )
+                if current_rol != "administrador" and not is_author:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Acceso denegado: solo el inspector autor de la ficha puede modificarla (RB-11)",
                     )
-                    f.factores_riesgo = factores
-                db.commit()
-                db.refresh(f)
-                return obtener_ficha_por_id(db, id_ficha)
+
+            if payload.notas is not None:
+                f.notas = payload.notas
+            if payload.fecha_visita is not None:
+                f.fecha_visita = date.fromisoformat(payload.fecha_visita)
+            if payload.factores_riesgo_ids is not None:
+                factores = (
+                    db.query(FactorRiesgo)
+                    .filter(FactorRiesgo.id_factor.in_(payload.factores_riesgo_ids))
+                    .all()
+                )
+                f.factores_riesgo = factores
+            db.commit()
+            db.refresh(f)
+            return obtener_ficha_por_id(db, id_ficha)
+        except HTTPException:
+            raise
         except (OperationalError, Exception):
             pass
+
+    # Modo contingencia / pruebas sin BD
+    if current_user:
+        current_uid = current_user.get("id_usuario")
+        if current_uid is None and current_user.get("sub"):
+            try:
+                current_uid = int(current_user["sub"])
+            except (ValueError, TypeError):
+                current_uid = None
+        current_rol = current_user.get("rol")
+        current_correo = (current_user.get("correo") or "").strip().lower()
+        # En el mock la ficha pertenece al inspector con id_usuario = 2 (inspector@alervi.test)
+        is_mock_author = (current_uid == 2) or (
+            current_correo == "inspector@alervi.test"
+        )
+        if current_rol != "administrador" and not is_mock_author:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Acceso denegado: solo el inspector autor de la ficha puede modificarla (RB-11)",
+            )
 
     return FichaInspeccionResponse(
         id_ficha=id_ficha,
@@ -786,8 +962,17 @@ def listar_eventos_auditoria(
                         for e in eventos
                     ],
                 )
-        except (OperationalError, Exception):
-            pass
+            logger.info("Bitácora de auditoría sin eventos en BD. Usando fallback.")
+        except (OperationalError, Exception) as exc:
+            logger.warning(
+                "Error al listar eventos de auditoría en BD (%s: %s). Usando fallback.",
+                type(exc).__name__,
+                exc,
+            )
+    else:
+        logger.warning(
+            "DB no disponible (db is None). Usando eventos de auditoría fallback."
+        )
 
     return fallback_resp
 
