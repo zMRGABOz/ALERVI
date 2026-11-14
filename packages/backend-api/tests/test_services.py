@@ -778,3 +778,60 @@ def test_authenticate_user_bloqueo_y_auditoria_unit():
         assert ev is None  # Con db=None retorna None pero guarda en buffer
     finally:
         reset_login_attempts(test_mail)
+
+
+def test_verify_mfa_code_unit():
+    """Verifica validación de segundo factor MFA (RFC 6238 y código canónico)."""
+    from app.core.security import verify_mfa_code
+
+    # Código canónico por defecto
+    assert verify_mfa_code("482910") is True
+
+    # Códigos inválidos o malformados
+    assert verify_mfa_code(None) is False
+    assert verify_mfa_code("") is False
+    assert verify_mfa_code("12345") is False
+    assert verify_mfa_code("1234567") is False
+    assert verify_mfa_code("abcdef") is False
+    assert verify_mfa_code("000000") is False
+
+
+def test_authenticate_user_admin_mfa_unit():
+    """RNF-S-1: Login de administrador exige código MFA antes de entregar token Bearer."""
+    from fastapi import HTTPException
+
+    from app.services.crud_service import authenticate_user
+
+    # Admin sin código MFA -> debe levantar HTTP 401
+    with pytest.raises(HTTPException) as exc_info:
+        authenticate_user(
+            None,
+            LoginRequest(correo="admin@alervi.test", password="Dev-2026-ALERVI"),
+        )
+    assert exc_info.value.status_code == 401
+    assert "MFA" in exc_info.value.detail
+
+    # Admin con código MFA inválido -> debe levantar HTTP 401
+    with pytest.raises(HTTPException) as exc_info:
+        authenticate_user(
+            None,
+            LoginRequest(
+                correo="admin@alervi.test",
+                password="Dev-2026-ALERVI",
+                codigo_mfa="111111",
+            ),
+        )
+    assert exc_info.value.status_code == 401
+    assert "inválido" in exc_info.value.detail.lower()
+
+    # Admin con código MFA válido -> debe entregar token Bearer
+    resp = authenticate_user(
+        None,
+        LoginRequest(
+            correo="admin@alervi.test",
+            password="Dev-2026-ALERVI",
+            codigo_mfa="482910",
+        ),
+    )
+    assert resp.access_token is not None
+    assert resp.usuario.rol == "administrador"

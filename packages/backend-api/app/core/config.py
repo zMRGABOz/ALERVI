@@ -116,6 +116,12 @@ class Settings(BaseSettings):
     auth_lockout_status_code: int = int(
         _clean_env(os.getenv("AUTH_LOCKOUT_STATUS_CODE"), "403")
     )
+    admin_mfa_default_code: str = _clean_env(
+        os.getenv("ADMIN_MFA_DEFAULT_CODE"), "482910"
+    )
+    admin_totp_secret: str = _clean_env(
+        os.getenv("ADMIN_TOTP_SECRET"), "JBSWY3DPEHPK3PXP"
+    )
 
     # -- CORS --
     backend_cors_origins: str = _clean_env(

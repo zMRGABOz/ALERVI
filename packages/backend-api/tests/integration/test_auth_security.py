@@ -32,16 +32,58 @@ def test_login_exitoso_inspector(client: TestClient):
 
 @pytest.mark.integration
 def test_login_exitoso_administrador(client: TestClient):
-    """RF-9 / TC-30: Verifica autenticación exitosa para usuario administrador."""
+    """RF-9 / TC-30: Verifica autenticación exitosa para usuario administrador con código MFA válido."""
     payload = {
         "correo": "admin@alervi.test",
         "password": "Dev-2026-ALERVI",
+        "codigo_mfa": "482910",
     }
     response = client.post("/api/v1/auth/login", json=payload)
     assert response.status_code == 200
     data = response.json()
+    assert "access_token" in data
     assert data["usuario"]["rol"] == "administrador"
     assert data["usuario"]["id_usuario"] == 1
+
+
+@pytest.mark.integration
+def test_login_administrador_sin_mfa_rechazado(client: TestClient):
+    """RNF-S-1: Login de administrador exige código MFA antes de entregar el token Bearer."""
+    payload_sin_mfa = {
+        "correo": "admin@alervi.test",
+        "password": "Dev-2026-ALERVI",
+    }
+    response = client.post("/api/v1/auth/login", json=payload_sin_mfa)
+    assert response.status_code == 401
+    assert "MFA" in response.json().get("detail", "")
+    assert "access_token" not in response.json()
+
+
+@pytest.mark.integration
+def test_login_administrador_mfa_invalido_rechazado(client: TestClient):
+    """RNF-S-1: Login de administrador rechaza código MFA incorrecto o expirado."""
+    payload_mfa_invalido = {
+        "correo": "admin@alervi.test",
+        "password": "Dev-2026-ALERVI",
+        "codigo_mfa": "999999",
+    }
+    response = client.post("/api/v1/auth/login", json=payload_mfa_invalido)
+    assert response.status_code == 401
+    assert "inválido" in response.json().get("detail", "").lower()
+    assert "access_token" not in response.json()
+
+
+@pytest.mark.integration
+def test_login_inspector_sin_mfa_permitido(client: TestClient):
+    """RF-9 / RNF-S-1: Inspector no está obligado a ingresar segundo factor (MFA)."""
+    payload_inspector = {
+        "correo": "inspector@alervi.test",
+        "password": "Dev-2026-ALERVI",
+    }
+    response = client.post("/api/v1/auth/login", json=payload_inspector)
+    assert response.status_code == 200
+    assert "access_token" in response.json()
+    assert response.json()["usuario"]["rol"] == "inspector"
 
 
 @pytest.mark.unit

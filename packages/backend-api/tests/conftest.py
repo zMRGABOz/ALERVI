@@ -59,6 +59,7 @@ def admin_auth_headers(client: TestClient) -> dict:
     payload = {
         "correo": "admin@alervi.test",
         "password": "Dev-2026-ALERVI",
+        "codigo_mfa": "482910",
     }
     response = client.post("/api/v1/auth/login", json=payload)
     if response.status_code != 200:

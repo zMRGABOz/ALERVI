@@ -12,7 +12,12 @@ from typing import List, Optional, Tuple
 from fastapi import HTTPException, status
 
 from app.core.config import settings
-from app.core.security import create_access_token, get_password_hash, verify_password
+from app.core.security import (
+    create_access_token,
+    get_password_hash,
+    verify_mfa_code,
+    verify_password,
+)
 from app.models.db_models import (
     EventoAuditoria,
     FactorRiesgo,
@@ -320,6 +325,46 @@ def authenticate_user(db: Session, payload: LoginRequest) -> LoginResponse:
                 if not verify_password(password_req, user.hash_clave):
                     _auth_failed(user)
 
+                # Validación de segundo factor (MFA) para rol administrador (RNF-S-1)
+                if user.rol == "administrador":
+                    if not payload.codigo_mfa:
+                        logger.warning(
+                            "Intento de login de administrador '%s' sin código MFA.",
+                            correo_req,
+                        )
+                        registrar_evento_auditoria(
+                            db=db,
+                            accion="login_fallido",
+                            id_usuario=user.id_usuario,
+                            correo_usuario=user.correo,
+                            entidad_afectada="usuario",
+                            id_afectado=user.id_usuario,
+                            detalles="Segundo factor de autenticación (MFA) requerido para el rol administrador.",
+                        )
+                        raise HTTPException(
+                            status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Segundo factor de autenticación (MFA) requerido para el rol administrador",
+                            headers={"WWW-Authenticate": "Bearer"},
+                        )
+                    if not verify_mfa_code(payload.codigo_mfa):
+                        logger.warning(
+                            "Código MFA inválido para administrador '%s'.", correo_req
+                        )
+                        registrar_evento_auditoria(
+                            db=db,
+                            accion="login_fallido",
+                            id_usuario=user.id_usuario,
+                            correo_usuario=user.correo,
+                            entidad_afectada="usuario",
+                            id_afectado=user.id_usuario,
+                            detalles="Código MFA inválido o expirado para administrador.",
+                        )
+                        raise HTTPException(
+                            status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="Código MFA inválido o expirado",
+                            headers={"WWW-Authenticate": "Bearer"},
+                        )
+
                 # Éxito: resetear contador de fallos
                 _login_tracker.reset_attempts(correo_req)
                 registrar_evento_auditoria(
@@ -380,6 +425,47 @@ def authenticate_user(db: Session, payload: LoginRequest) -> LoginResponse:
 
     uid = 1 if "admin" in correo_req else 2
     rol = "administrador" if "admin" in correo_req else "inspector"
+
+    # Validación de segundo factor (MFA) para rol administrador en contingencia
+    if rol == "administrador":
+        if not payload.codigo_mfa:
+            logger.warning(
+                "Intento de login de administrador '%s' sin código MFA en contingencia.",
+                correo_req,
+            )
+            registrar_evento_auditoria(
+                db=db,
+                accion="login_fallido",
+                id_usuario=uid,
+                correo_usuario=correo_req,
+                entidad_afectada="usuario",
+                id_afectado=uid,
+                detalles="Segundo factor de autenticación (MFA) requerido para el rol administrador.",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Segundo factor de autenticación (MFA) requerido para el rol administrador",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        if not verify_mfa_code(payload.codigo_mfa):
+            logger.warning(
+                "Código MFA inválido para administrador '%s' en contingencia.",
+                correo_req,
+            )
+            registrar_evento_auditoria(
+                db=db,
+                accion="login_fallido",
+                id_usuario=uid,
+                correo_usuario=correo_req,
+                entidad_afectada="usuario",
+                id_afectado=uid,
+                detalles="Código MFA inválido o expirado para administrador.",
+            )
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Código MFA inválido o expirado",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
     # Éxito en fallback: resetear contador de fallos
     _login_tracker.reset_attempts(correo_req)
