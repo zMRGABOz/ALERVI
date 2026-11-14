@@ -9,7 +9,6 @@ import json
 import math
 import os
 import sys
-
 from collections import Counter
 
 import psycopg2

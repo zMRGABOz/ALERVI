@@ -133,7 +133,9 @@ def authenticate_user(db: Session, payload: LoginRequest) -> LoginResponse:
 
     # Modo contingencia / pruebas sin BD (db is None o error)
     fallback_hash_argon2 = "$argon2id$v=19$m=65536,t=3,p=4$Zk8ZbSGjZpc3VTx3KCIZSQ$WSDsfP/3bj+weSQboPvfEnb4r5/XVxvqhy+Yjuf11Ss"
-    fallback_hash_bcrypt = "$2b$12$FftZVwmTG1VxkseqE1Wy.OT1qUesa6jeaq4Sb.IsJAzKSMhV2NtYO"
+    fallback_hash_bcrypt = (
+        "$2b$12$FftZVwmTG1VxkseqE1Wy.OT1qUesa6jeaq4Sb.IsJAzKSMhV2NtYO"
+    )
     fallback_hash_pbkdf2 = "pbkdf2:0011223344556677:4d7cdb895d8c441cadff274e739d73551b276873859caecdd349cdc355d8b2e2"
     if not (
         verify_password(password_req, fallback_hash_argon2)
