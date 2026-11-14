@@ -383,7 +383,9 @@ def test_upload_photo_to_supabase_error_raises_ioerror():
     ):
         raw_jpeg = _create_jpeg_with_gps()
         clean_bytes, ext, mime = storage_service.sanitize_image_exif(raw_jpeg)
-        with pytest.raises(IOError, match="Supabase Storage respondió con estado HTTP 401"):
+        with pytest.raises(
+            IOError, match="Supabase Storage respondió con estado HTTP 401"
+        ):
             storage_service.upload_photo_to_supabase(clean_bytes, ext, mime)
 
 
@@ -412,4 +414,3 @@ def test_crud_agregar_fotografia_supabase_error_returns_502(client, auth_headers
         )
         assert res.status_code == 502
         assert "servicio de almacenamiento" in res.json()["detail"].lower()
-
