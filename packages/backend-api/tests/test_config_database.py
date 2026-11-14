@@ -87,3 +87,31 @@ def test_get_db_generator():
         next(generator)
     except StopIteration:
         pass
+
+
+def test_env_inline_comments_sanitization():
+    """Verifica que valores de entorno con comentarios inline '# ...' se saniticen."""
+    s = Settings(
+        db_pool_size="8 # tamaño del pool",
+        db_max_overflow="4 # overflow admitido",
+        db_pool_timeout="45 # timeout en seg",
+        db_pool_recycle="1200 # recycle",
+        db_use_null_pool="true # usar null pool",
+        db_ssl_require="false # sin ssl",
+        backend_debug="false # debug inactivo",
+    )
+    assert s.db_pool_size == 8
+    assert s.db_max_overflow == 4
+    assert s.db_pool_timeout == 45
+    assert s.db_pool_recycle == 1200
+    assert s.db_use_null_pool is True
+    assert s.db_ssl_require is False
+    assert s.backend_debug is False
+
+
+def test_load_env_fallback_resilience():
+    """Verifica que _load_env_fallback no falle por IndexError al resolver rutas."""
+    from app.core.config import _load_env_fallback
+
+    # No debe arrojar ninguna excepcion
+    _load_env_fallback()

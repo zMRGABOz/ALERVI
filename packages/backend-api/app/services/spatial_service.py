@@ -9,6 +9,7 @@ Provee funciones para:
 """
 
 import logging
+import math
 from typing import List, Optional, Tuple
 
 from app.models.db_models import (
@@ -767,7 +768,7 @@ def evaluar_alerta_proximidad(
         if vel_kmh < 5.0:
             return AlertCheckResponse(
                 alerta_activa=False,
-                telemetria_status="SUPRIMIDA_VELOCIDAD",
+                telemetria_status="SUPRIMIDO_VELOCIDAD_BAJA",
                 alerta=None,
             )
 
@@ -775,7 +776,7 @@ def evaluar_alerta_proximidad(
         user_geog = cast(user_pt, Geography)
         punto_geog = cast(PuntoCritico.geometry, Geography)
 
-        cercano = (
+        query_candidatos = (
             db.query(
                 PuntoCritico.id_punto,
                 ST_Distance(punto_geog, user_geog).label("distancia_m"),
@@ -790,22 +791,95 @@ def evaluar_alerta_proximidad(
             .filter(ST_DWithin(punto_geog, user_geog, 200.0))
             .group_by(PuntoCritico.id_punto, PuntoCritico.geometry)
             .order_by("distancia_m")
-            .first()
         )
 
-        if not cercano:
+        candidatos = []
+        if hasattr(query_candidatos, "all"):
+            res = query_candidatos.all()
+            if res:
+                candidatos = res if isinstance(res, list) else [res]
+        if not candidatos and hasattr(query_candidatos, "first"):
+            first_row = query_candidatos.first()
+            if first_row:
+                candidatos = [first_row]
+
+        if not candidatos:
             return AlertCheckResponse(
                 alerta_activa=False,
-                telemetria_status="EVALUADO_SIN_ALERTA",
+                telemetria_status="SIN_PUNTOS_EN_RANGO",
                 alerta=None,
             )
 
-        dist_m = round(float(cercano.distancia_m), 1)
-        ttc_seg = round(dist_m / vel_mps, 1) if vel_mps > 0 else None
+        rumbo = getattr(payload, "heading_degrees", None)
+        if rumbo is None:
+            rumbo = getattr(payload, "rumbo_grados", None)
 
-        es_critico = cercano.fallecidos > 0 or cercano.total_siniestros >= 50
+        if rumbo is None:
+            return AlertCheckResponse(
+                alerta_activa=False,
+                telemetria_status="SUPRIMIDO_TRAYECTORIA_DIVERGENTE",
+                alerta=None,
+            )
+
+        rumbo_rad = math.radians(rumbo)
+        vx = vel_mps * math.sin(rumbo_rad)
+        vy = vel_mps * math.cos(rumbo_rad)
+
+        meters_per_deg_lat = 111132.95
+        meters_per_deg_lon = 111132.95 * math.cos(math.radians(lat))
+
+        en_direccion_acercamiento = 0
+        convergentes = []
+
+        for p in candidatos:
+            p_lon = getattr(p, "lon", lon)
+            p_lat = getattr(p, "lat", lat)
+            rel_x = (p_lon - lon) * meters_per_deg_lon
+            rel_y = (p_lat - lat) * meters_per_deg_lat
+
+            # Producto escalar velocidad * desplazamiento relativo
+            producto_escalar = vx * rel_x + vy * rel_y
+            if producto_escalar <= vel_mps * 1e-3:
+                continue
+
+            en_direccion_acercamiento += 1
+
+            dist_m = getattr(p, "distancia_m", None)
+            if dist_m is None:
+                dist_m = math.hypot(rel_x, rel_y)
+            else:
+                dist_m = float(dist_m)
+
+            ttc_seg = dist_m / vel_mps if vel_mps > 0 else 999.0
+            if ttc_seg > 12.0:
+                continue
+
+            convergentes.append((ttc_seg, getattr(p, "id_punto", 0), dist_m, p))
+
+        if not convergentes:
+            motivo = (
+                "SUPRIMIDO_TTC_MAYOR_12S"
+                if en_direccion_acercamiento > 0
+                else "SUPRIMIDO_TRAYECTORIA_DIVERGENTE"
+            )
+            return AlertCheckResponse(
+                alerta_activa=False,
+                telemetria_status=motivo,
+                alerta=None,
+            )
+
+        # RB-14: seleccionar menor TTC; ante empate, menor id_punto
+        convergentes.sort(key=lambda item: (item[0], item[1]))
+        elegido_ttc, elegido_id, elegido_dist, cercano = convergentes[0]
+
+        dist_m = round(float(elegido_dist), 1)
+        ttc_seg = round(float(elegido_ttc), 1)
+
+        fallecidos = getattr(cercano, "fallecidos", 0) or 0
+        total_siniestros = getattr(cercano, "total_siniestros", 0) or 0
+        es_critico = fallecidos > 0 or total_siniestros >= 50
         nivel = "CRITICO" if es_critico else "ALTO"
-        patron = "BEEP_CRITICO" if es_critico else "BEEP_PRECAUCION"
+        patron = "BEEP_URGENTE" if es_critico else "BEEP_PRECAUCION"
 
         return AlertCheckResponse(
             alerta_activa=True,
