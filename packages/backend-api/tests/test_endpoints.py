@@ -115,7 +115,7 @@ def test_usuarios_crud(admin_auth_headers: dict):
     assert not res_patch.json()["activo"]
 
 
-def test_cargas_batch():
+def test_cargas_batch(admin_auth_headers: dict):
     """Verifica ingesta batch de siniestros CONASET (POST /api/v1/cargas)."""
     payload = {
         "fuente": "CONASET_ARCGIS",
@@ -129,7 +129,7 @@ def test_cargas_batch():
             }
         ],
     }
-    response = client.post("/api/v1/cargas", json=payload)
+    response = client.post("/api/v1/cargas", json=payload, headers=admin_auth_headers)
     assert response.status_code == 201
     data = response.json()
     assert data["anio"] == 2024
@@ -188,7 +188,7 @@ def test_detalle_punto_tecnico():
     assert "desglose_scoring" in data
 
 
-def test_factores_y_ponderaciones():
+def test_factores_y_ponderaciones(admin_auth_headers: dict):
     """Verifica catalogo de factores y calibracion de ponderaciones."""
     # Listar factores
     res_list = client.get("/api/v1/factores")
@@ -199,13 +199,23 @@ def test_factores_y_ponderaciones():
     res_create = client.post(
         "/api/v1/factores",
         json={"nombre": "Nuevo factor de prueba", "descripcion": "Descripcion corta"},
+        headers=admin_auth_headers,
     )
     assert res_create.status_code == 201
+
+    # Crear factor usando alias /api/v1/factores-riesgo
+    res_create_alias = client.post(
+        "/api/v1/factores-riesgo",
+        json={"nombre": "Otro factor alias", "descripcion": "Descripcion alias"},
+        headers=admin_auth_headers,
+    )
+    assert res_create_alias.status_code == 201
 
     # Modificar factor
     res_patch = client.patch(
         "/api/v1/factores/1",
         json={"activo": False},
+        headers=admin_auth_headers,
     )
     assert res_patch.status_code == 200
 
@@ -223,9 +233,24 @@ def test_factores_y_ponderaciones():
             "w_tendencia": 0.20,
             "w_contexto": 0.20,
         },
+        headers=admin_auth_headers,
     )
     assert res_update_pond.status_code == 200
     assert res_update_pond.json()["w_severidad"] == 0.40
+
+    # Calibrar ponderaciones via alias /api/v1/ponderaciones
+    res_update_pond_alias = client.put(
+        "/api/v1/ponderaciones",
+        json={
+            "w_severidad": 0.35,
+            "w_frecuencia": 0.25,
+            "w_tendencia": 0.20,
+            "w_contexto": 0.20,
+        },
+        headers=admin_auth_headers,
+    )
+    assert res_update_pond_alias.status_code == 200
+    assert res_update_pond_alias.json()["w_severidad"] == 0.35
 
 
 def test_inspections_y_fotos(auth_headers: dict):
@@ -250,7 +275,7 @@ def test_inspections_y_fotos(auth_headers: dict):
     assert res_invalid.status_code == 422
 
     # Detalle ficha
-    res_get = client.get(f"/api/v1/inspections/{id_ficha}")
+    res_get = client.get(f"/api/v1/inspections/{id_ficha}", headers=auth_headers)
     assert res_get.status_code == 200
 
     # Editar ficha (PATCH)
@@ -269,9 +294,16 @@ def test_inspections_y_fotos(auth_headers: dict):
     assert "ruta" in res_foto.json()
 
     # Historial de fichas por punto (GET /puntos/{id}/fichas)
-    res_historial = client.get("/api/v1/puntos/101/fichas")
+    res_historial = client.get("/api/v1/puntos/101/fichas", headers=auth_headers)
     assert res_historial.status_code == 200
     assert isinstance(res_historial.json(), list)
+
+    # Historial de fichas por punto via alias /puntos/{id}/inspections
+    res_historial_alias = client.get(
+        "/api/v1/puntos/101/inspections", headers=auth_headers
+    )
+    assert res_historial_alias.status_code == 200
+    assert isinstance(res_historial_alias.json(), list)
 
 
 def test_alerts_evaluacion():

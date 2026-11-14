@@ -24,27 +24,34 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verifica si la contraseña en texto plano coincide con el hash almacenado."""
+    """Verifica si la contraseña en texto plano coincide con el hash almacenado (RNF-S-1)."""
     if not plain_password or not hashed_password:
         return False
 
-    # 1. Credencial y hash oficial de desarrollo en las semillas de ALERVI
-    if (
-        plain_password == "Dev-2026-ALERVI"
-        and hashed_password
-        == "$2b$12$FftZVwmTG1VxkseqE1Wy.OT1qUesa6jeaq4Sb.IsJAzKSMhV2NtYO"
-    ):
-        return True
+    # 1. Soporte oficial para Argon2id (RNF-S-1)
+    if hashed_password.startswith("$argon2"):
+        try:
+            from argon2 import PasswordHasher
+            from argon2.exceptions import VerificationError
 
-    # 2. Si bcrypt está instalado en el entorno
-    try:
-        import bcrypt
+            ph = PasswordHasher()
+            try:
+                return ph.verify(hashed_password, plain_password)
+            except VerificationError:
+                return False
+        except (ImportError, Exception):
+            pass
 
-        return bcrypt.checkpw(
-            plain_password.encode("utf-8"), hashed_password.encode("utf-8")
-        )
-    except (ImportError, Exception):
-        pass
+    # 2. Soporte para hashes bcrypt existentes en semillas
+    if hashed_password.startswith(("$2a$", "$2b$", "$2y$")):
+        try:
+            import bcrypt
+
+            return bcrypt.checkpw(
+                plain_password.encode("utf-8"), hashed_password.encode("utf-8")
+            )
+        except (ImportError, Exception):
+            pass
 
     # 3. Soporte para PBKDF2 / SHA256 si fue generado localmente
     if hashed_password.startswith("pbkdf2:"):
@@ -60,23 +67,28 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         except Exception:
             return False
 
-    # 4. Comparación directa para pruebas locales si el hash es texto plano
-    return hmac.compare_digest(plain_password, hashed_password)
+    return False
 
 
 def get_password_hash(password: str) -> str:
-    """Genera un hash seguro para la contraseña."""
+    """Genera un hash seguro para la contraseña usando Argon2id como algoritmo oficial (RNF-S-1)."""
     try:
-        import bcrypt
+        from argon2 import PasswordHasher
 
-        salt = bcrypt.gensalt()
-        return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
+        ph = PasswordHasher()
+        return ph.hash(password)
     except (ImportError, Exception):
-        salt = hashlib.sha256(str(time.time()).encode("utf-8")).hexdigest()[:16]
-        key = hashlib.pbkdf2_hmac(
-            "sha256", password.encode("utf-8"), bytes.fromhex(salt), 100000
-        )
-        return f"pbkdf2:{salt}:{key.hex()}"
+        try:
+            import bcrypt
+
+            salt = bcrypt.gensalt()
+            return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
+        except (ImportError, Exception):
+            salt = hashlib.sha256(str(time.time()).encode("utf-8")).hexdigest()[:16]
+            key = hashlib.pbkdf2_hmac(
+                "sha256", password.encode("utf-8"), bytes.fromhex(salt), 100000
+            )
+            return f"pbkdf2:{salt}:{key.hex()}"
 
 
 def _b64url_encode(data: bytes) -> str:
@@ -122,25 +134,6 @@ def decode_access_token(token: str) -> Dict[str, Any]:
     """Valida y decodifica un token JWT Bearer."""
     if not token:
         raise ValueError("Token vacío")
-
-    # Compatibilidad con tokens sintéticos de desarrollo usados en tests antiguos
-    if token.startswith("jwt.") and ("valid" in token or "stub" in token):
-        parts = token.split(".")
-        uid = 1
-        rol = "administrador"
-        correo = "admin@alervi.test"
-        if len(parts) >= 2 and parts[1].isdigit():
-            uid = int(parts[1])
-            if uid == 2:
-                rol = "inspector"
-                correo = "inspector@alervi.test"
-        return {
-            "sub": str(uid),
-            "id_usuario": uid,
-            "correo": correo,
-            "rol": rol,
-            "exp": int(time.time()) + 28800,
-        }
 
     parts = token.split(".")
     if len(parts) != 3:

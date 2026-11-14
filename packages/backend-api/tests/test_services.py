@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from app.core.security import get_password_hash
 from app.schemas.api_models import (
     AlertCheckRequest,
     CargaDatosBatchRequest,
@@ -418,7 +419,7 @@ def test_crud_usuarios():
     mock_user.correo = "test@alervi.cl"
     mock_user.rol = "inspector"
     mock_user.activo = True
-    mock_user.hash_clave = "Password123*"
+    mock_user.hash_clave = get_password_hash("Password123*")
     mock_user.fecha_creacion = None
 
     mock_db.query.return_value.filter.return_value.first.return_value = mock_user

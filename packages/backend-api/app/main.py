@@ -214,6 +214,7 @@ async def update_usuario(
 async def cargar_datos_viales(
     payload: CargaDatosBatchRequest,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(require_admin),
 ):
     """Carga antecedentes viales, registra fuentes y valida registros territoriales (RF-1)."""
     return crud_service.procesar_carga_vial(db, payload)
@@ -349,8 +350,18 @@ async def list_factores_riesgo(
     tags=["Factores y Ponderaciones"],
     summary="Registrar nuevo factor de riesgo",
 )
+@app.post(
+    "/api/v1/factores-riesgo",
+    response_model=FactorRiesgoDto,
+    status_code=status.HTTP_201_CREATED,
+    tags=["Factores y Ponderaciones"],
+    summary="Registrar nuevo factor de riesgo",
+    include_in_schema=False,
+)
 async def create_factor_riesgo(
-    payload: FactorRiesgoCreateRequest, db: Session = Depends(get_db)
+    payload: FactorRiesgoCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_admin),
 ):
     """Registra un nuevo factor de riesgo en el catálogo municipal (RF-4)."""
     return crud_service.crear_factor_riesgo(db, payload)
@@ -363,10 +374,19 @@ async def create_factor_riesgo(
     tags=["Factores y Ponderaciones"],
     summary="Modificar o activar/desactivar factor de riesgo",
 )
+@app.patch(
+    "/api/v1/factores-riesgo/{id_factor}",
+    response_model=FactorRiesgoDto,
+    status_code=status.HTTP_200_OK,
+    tags=["Factores y Ponderaciones"],
+    summary="Modificar o activar/desactivar factor de riesgo",
+    include_in_schema=False,
+)
 async def update_factor_riesgo(
     id_factor: int = Path(...),
     payload: FactorRiesgoUpdateRequest = ...,
     db: Session = Depends(get_db),
+    current_user: dict = Depends(require_admin),
 ):
     """Actualiza descripción o estado activo de un factor (RF-4)."""
     f = crud_service.actualizar_factor_riesgo(db, id_factor, payload)
@@ -385,6 +405,14 @@ async def update_factor_riesgo(
     tags=["Factores y Ponderaciones"],
     summary="Consultar ponderaciones vigentes del índice",
 )
+@app.get(
+    "/api/v1/ponderaciones",
+    response_model=PonderacionesScoringDto,
+    status_code=status.HTTP_200_OK,
+    tags=["Factores y Ponderaciones"],
+    summary="Consultar ponderaciones vigentes del índice",
+    include_in_schema=False,
+)
 async def get_ponderaciones_vigentes(db: Session = Depends(get_db)):
     """Retorna la configuración activa de pesos del índice multicriterio (RF-4, RB-8)."""
     return crud_service.obtener_ponderaciones()
@@ -397,8 +425,18 @@ async def get_ponderaciones_vigentes(db: Session = Depends(get_db)):
     tags=["Factores y Ponderaciones"],
     summary="Calibrar y versionar ponderaciones del índice",
 )
+@app.put(
+    "/api/v1/ponderaciones",
+    response_model=PonderacionesScoringDto,
+    status_code=status.HTTP_200_OK,
+    tags=["Factores y Ponderaciones"],
+    summary="Calibrar y versionar ponderaciones del índice",
+    include_in_schema=False,
+)
 async def update_ponderaciones(
-    payload: PonderacionesUpdateRequest, db: Session = Depends(get_db)
+    payload: PonderacionesUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_admin),
 ):
     """Calibra y versiona las ponderaciones del índice de priorización (RF-4, RB-8)."""
     return crud_service.calibrar_ponderaciones(payload)
@@ -419,8 +457,7 @@ async def create_ficha_inspeccion(
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    """Crea una ficha de inspección asociada a un punto con factores y observaciones (RF-5)."""
-    return crud_service.crear_ficha_inspeccion(db, payload)
+    return crud_service.crear_ficha_inspeccion(db, payload, current_user=current_user)
 
 
 @app.get(
@@ -431,7 +468,9 @@ async def create_ficha_inspeccion(
     summary="Consultar detalle de una ficha de inspección",
 )
 async def get_ficha_inspeccion_by_id(
-    id_ficha: int = Path(...), db: Session = Depends(get_db)
+    id_ficha: int = Path(...),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Retorna la información completa de una ficha de inspección técnica."""
     f = crud_service.obtener_ficha_por_id(db, id_ficha)
@@ -457,7 +496,9 @@ async def update_ficha_inspeccion(
     current_user: dict = Depends(get_current_user),
 ):
     """Actualiza observaciones de una ficha existente de autoría propia (RF-7, RB-11)."""
-    f = crud_service.actualizar_ficha_inspeccion(db, id_ficha, payload)
+    f = crud_service.actualizar_ficha_inspeccion(
+        db, id_ficha, payload, current_user=current_user
+    )
     if not f:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -489,9 +530,18 @@ async def upload_foto_inspeccion(
     tags=["Fichas de Inspección"],
     summary="Consultar historial cronológico de fichas de un punto crítico",
 )
+@app.get(
+    "/api/v1/puntos/{id_punto}/inspections",
+    response_model=List[FichaInspeccionResponse],
+    status_code=status.HTTP_200_OK,
+    tags=["Fichas de Inspección"],
+    summary="Consultar historial cronológico de inspecciones de un punto crítico",
+    include_in_schema=False,
+)
 async def get_historial_fichas_punto(
     id_punto: int = Path(...),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Consulta el historial de fichas de inspección asociadas a un punto (RF-6, RB-12)."""
     return crud_service.listar_fichas_de_punto(db, id_punto)

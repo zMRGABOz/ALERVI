@@ -69,23 +69,148 @@ def test_login_password_incorrecto_rechazado(client: TestClient):
 def test_tc31_rutas_protegidas_sin_token_rechazan_401_o_403(client: TestClient):
     """TC-31: Sesión ausente en endpoints protegidos debe responder con HTTP 401 o 403."""
     endpoints_protegidos = [
-        ("GET", "/api/v1/usuarios"),
-        ("GET", "/api/v1/auditoria"),
-        ("POST", "/api/v1/inspections"),
+        ("GET", "/api/v1/usuarios", None),
+        ("GET", "/api/v1/auditoria", None),
+        (
+            "POST",
+            "/api/v1/inspections",
+            {
+                "id_punto": 101,
+                "fecha_visita": "2026-11-02",
+                "notas": "Intento sin token",
+            },
+        ),
+        (
+            "POST",
+            "/api/v1/cargas",
+            {
+                "fuente": "CONASET_ARCGIS",
+                "anio": 2024,
+                "descripcion": "Intento sin token",
+                "registros": [],
+            },
+        ),
+        (
+            "PUT",
+            "/api/v1/ponderaciones",
+            {
+                "w_severidad": 0.4,
+                "w_frecuencia": 0.2,
+                "w_tendencia": 0.2,
+                "w_contexto": 0.2,
+            },
+        ),
+        (
+            "PUT",
+            "/api/v1/factores/ponderaciones",
+            {
+                "w_severidad": 0.4,
+                "w_frecuencia": 0.2,
+                "w_tendencia": 0.2,
+                "w_contexto": 0.2,
+            },
+        ),
+        (
+            "POST",
+            "/api/v1/factores",
+            {"nombre": "Factor sin token", "descripcion": "desc"},
+        ),
+        (
+            "POST",
+            "/api/v1/factores-riesgo",
+            {"nombre": "Factor sin token", "descripcion": "desc"},
+        ),
+        ("PATCH", "/api/v1/factores/1", {"activo": False}),
+        ("PATCH", "/api/v1/factores-riesgo/1", {"activo": False}),
+        ("GET", "/api/v1/inspections/1", None),
+        ("GET", "/api/v1/puntos/101/fichas", None),
+        ("GET", "/api/v1/puntos/101/inspections", None),
     ]
-    for metodo, ruta in endpoints_protegidos:
+    for metodo, ruta, payload in endpoints_protegidos:
         if metodo == "GET":
             res = client.get(ruta)
+        elif metodo == "POST":
+            res = client.post(ruta, json=payload or {})
+        elif metodo == "PUT":
+            res = client.put(ruta, json=payload or {})
+        elif metodo == "PATCH":
+            res = client.patch(ruta, json=payload or {})
         else:
-            res = client.post(
-                ruta,
-                json={
-                    "id_punto": 101,
-                    "fecha_visita": "2026-11-02",
-                    "notas": "Intento sin token",
-                },
-            )
+            res = client.request(metodo, ruta)
         assert res.status_code in (
             401,
             403,
         ), f"Endpoint {metodo} {ruta} accesible sin token: devolvió {res.status_code}"
+
+
+@pytest.mark.integration
+def test_jwt_bypass_tokens_rechazados(client: TestClient):
+    """Verifica que tokens sintéticos de desarrollo (jwt.valid, jwt.stub) sean rechazados con HTTP 401."""
+    tokens_invalidos = [
+        "jwt.valid",
+        "jwt.1.valid",
+        "jwt.2.valid",
+        "jwt.stub",
+        "Bearer jwt.valid",
+        "invalid.token.structure",
+    ]
+    for token in tokens_invalidos:
+        auth_header = {
+            "Authorization": f"Bearer {token}"
+            if not token.startswith("Bearer ")
+            else token
+        }
+        res = client.get("/api/v1/usuarios", headers=auth_header)
+        assert res.status_code == 401, (
+            f"Token bypass no fue rechazado: {token} devolvió {res.status_code}"
+        )
+
+
+@pytest.mark.integration
+def test_rb11_inspector_no_puede_editar_ficha_ajena(client: TestClient):
+    """RB-11: Verifica que un inspector autenticado no pueda editar la ficha de otro inspector (HTTP 403)."""
+    from app.core.security import create_access_token
+
+    # Token para un inspector ajeno (id_usuario = 99)
+    otro_inspector_token = create_access_token(
+        {
+            "sub": "99",
+            "id_usuario": 99,
+            "correo": "otro_inspector@alervi.test",
+            "rol": "inspector",
+        }
+    )
+    headers = {"Authorization": f"Bearer {otro_inspector_token}"}
+
+    # Intentar editar ficha 101 (cuya autoría en mock/BD pertenece al inspector 2)
+    response = client.patch(
+        "/api/v1/inspections/1",
+        json={"notas": "Intento de edición no autorizada por otro inspector"},
+        headers=headers,
+    )
+    assert response.status_code == 403
+    assert "RB-11" in response.json()["detail"] or "autor" in response.json()["detail"]
+
+
+@pytest.mark.unit
+def test_security_argon2id_hashing_and_verification():
+    """RNF-S-1: Verifica hashing con Argon2id y rechazo de contraseñas en texto plano."""
+    from app.core.security import get_password_hash, verify_password
+
+    # Generación con Argon2id
+    pwd = "ContrasenaSegura2026*"
+    hashed = get_password_hash(pwd)
+    assert hashed.startswith("$argon2id$")
+
+    # Verificación exitosa
+    assert verify_password(pwd, hashed) is True
+
+    # Verificación errónea
+    assert verify_password("ContrasenaIncorrecta", hashed) is False
+
+    # Verificación con contraseña vacía o hash nulo
+    assert verify_password("", hashed) is False
+    assert verify_password(pwd, "") is False
+
+    # Texto plano directo no debe ser aceptado como hash
+    assert verify_password(pwd, pwd) is False

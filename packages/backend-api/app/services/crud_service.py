@@ -10,7 +10,7 @@ from typing import List, Optional
 
 from fastapi import HTTPException, status
 
-from app.core.security import create_access_token, verify_password
+from app.core.security import create_access_token, get_password_hash, verify_password
 from app.models.db_models import (
     EventoAuditoria,
     FactorRiesgo,
@@ -237,7 +237,9 @@ def crear_usuario(db: Session, payload: UsuarioCreateRequest) -> UsuarioResponse
         try:
             nuevo = Usuario(
                 correo=payload.correo.strip().lower(),
-                hash_clave="$2b$12$FftZVwmTG1VxkseqE1Wy.OT1qUesa6jeaq4Sb.IsJAzKSMhV2NtYO",
+                hash_clave=get_password_hash(payload.clave)
+                if payload.clave
+                else get_password_hash("Dev-2026-ALERVI"),
                 rol=payload.rol,
                 activo=True,
             )
@@ -550,20 +552,36 @@ def calibrar_ponderaciones(
 # FICHAS DE INSPECCIÓN TÉCNICA
 # ==============================================================================
 def crear_ficha_inspeccion(
-    db: Session, payload: FichaInspeccionCreateRequest
+    db: Session,
+    payload: FichaInspeccionCreateRequest,
+    current_user: Optional[dict] = None,
 ) -> FichaInspeccionResponse:
     """Crea una nueva ficha de inspección asociada a un punto crítico."""
+    id_inspector = 2
+    correo_inspector = "inspector@alervi.test"
+    if current_user:
+        current_uid = current_user.get("id_usuario")
+        if current_uid is None and current_user.get("sub"):
+            try:
+                current_uid = int(current_user["sub"])
+            except (ValueError, TypeError):
+                current_uid = None
+        if current_uid:
+            id_inspector = current_uid
+        if current_user.get("correo"):
+            correo_inspector = current_user["correo"]
+
     if db is not None:
         try:
-            inspector = (
-                db.query(Usuario)
-                .filter(Usuario.rol == "inspector", Usuario.activo.is_(True))
-                .first()
-            )
-            id_inspector = inspector.id_usuario if inspector else 2
-            correo_inspector = (
-                inspector.correo if inspector else "inspector@alervi.test"
-            )
+            if not current_user:
+                inspector = (
+                    db.query(Usuario)
+                    .filter(Usuario.rol == "inspector", Usuario.activo.is_(True))
+                    .first()
+                )
+                if inspector:
+                    id_inspector = inspector.id_usuario
+                    correo_inspector = inspector.correo
 
             ficha = FichaInspeccion(
                 id_punto=payload.id_punto,
@@ -612,8 +630,8 @@ def crear_ficha_inspeccion(
         id_ficha=15,
         id_punto=payload.id_punto,
         nombre_interseccion="Av. Paicaví con Av. Los Carrera",
-        id_inspector=2,
-        correo_inspector="inspector@alervi.test",
+        id_inspector=id_inspector,
+        correo_inspector=correo_inspector,
         fecha_visita=payload.fecha_visita,
         fecha_registro=None,
         notas=payload.notas or "Visita a terreno realizada según protocolo.",
@@ -707,9 +725,12 @@ def obtener_ficha_por_id(
 
 
 def actualizar_ficha_inspeccion(
-    db: Session, id_ficha: int, payload: FichaInspeccionUpdateRequest
+    db: Session,
+    id_ficha: int,
+    payload: FichaInspeccionUpdateRequest,
+    current_user: Optional[dict] = None,
 ) -> Optional[FichaInspeccionResponse]:
-    """Actualiza observaciones y factores de una ficha propia."""
+    """Actualiza observaciones y factores de una ficha propia (RB-11)."""
     if db is not None:
         try:
             f = (
@@ -717,23 +738,70 @@ def actualizar_ficha_inspeccion(
                 .filter(FichaInspeccion.id_ficha == id_ficha)
                 .first()
             )
-            if f:
-                if payload.notas is not None:
-                    f.notas = payload.notas
-                if payload.fecha_visita is not None:
-                    f.fecha_visita = date.fromisoformat(payload.fecha_visita)
-                if payload.factores_riesgo_ids is not None:
-                    factores = (
-                        db.query(FactorRiesgo)
-                        .filter(FactorRiesgo.id_factor.in_(payload.factores_riesgo_ids))
-                        .all()
+            if not f:
+                return None
+
+            # RB-11: Validar autoría propia (o rol administrador)
+            if current_user:
+                current_uid = current_user.get("id_usuario")
+                if current_uid is None and current_user.get("sub"):
+                    try:
+                        current_uid = int(current_user["sub"])
+                    except (ValueError, TypeError):
+                        current_uid = None
+                current_rol = current_user.get("rol")
+                current_correo = (current_user.get("correo") or "").strip().lower()
+                is_author = (
+                    current_uid is not None and f.id_usuario == current_uid
+                ) or (
+                    f.usuario is not None
+                    and current_correo
+                    and (f.usuario.correo or "").strip().lower() == current_correo
+                )
+                if current_rol != "administrador" and not is_author:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Acceso denegado: solo el inspector autor de la ficha puede modificarla (RB-11)",
                     )
-                    f.factores_riesgo = factores
-                db.commit()
-                db.refresh(f)
-                return obtener_ficha_por_id(db, id_ficha)
+
+            if payload.notas is not None:
+                f.notas = payload.notas
+            if payload.fecha_visita is not None:
+                f.fecha_visita = date.fromisoformat(payload.fecha_visita)
+            if payload.factores_riesgo_ids is not None:
+                factores = (
+                    db.query(FactorRiesgo)
+                    .filter(FactorRiesgo.id_factor.in_(payload.factores_riesgo_ids))
+                    .all()
+                )
+                f.factores_riesgo = factores
+            db.commit()
+            db.refresh(f)
+            return obtener_ficha_por_id(db, id_ficha)
+        except HTTPException:
+            raise
         except (OperationalError, Exception):
             pass
+
+    # Modo contingencia / pruebas sin BD
+    if current_user:
+        current_uid = current_user.get("id_usuario")
+        if current_uid is None and current_user.get("sub"):
+            try:
+                current_uid = int(current_user["sub"])
+            except (ValueError, TypeError):
+                current_uid = None
+        current_rol = current_user.get("rol")
+        current_correo = (current_user.get("correo") or "").strip().lower()
+        # En el mock la ficha pertenece al inspector con id_usuario = 2 (inspector@alervi.test)
+        is_mock_author = (current_uid == 2) or (
+            current_correo == "inspector@alervi.test"
+        )
+        if current_rol != "administrador" and not is_mock_author:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Acceso denegado: solo el inspector autor de la ficha puede modificarla (RB-11)",
+            )
 
     return FichaInspeccionResponse(
         id_ficha=id_ficha,
