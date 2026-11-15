@@ -1,3 +1,5 @@
+import { parseRankingSearch, rankingFilterKey } from "./ranking-filters";
+
 export const routes = {
   home: "/",
   map: "/mapa",
@@ -15,6 +17,26 @@ export function parsePointId(value: string): number | null {
   if (!/^[1-9]\d*$/.test(value)) return null;
   const id = Number(value);
   return Number.isSafeInteger(id) ? id : null;
+}
+
+export function safeRankingReturnTo(value: string | undefined): string {
+  if (!value || value !== value.trim() || !value.startsWith("/") || value.startsWith("//") || value.includes("\\") || /[\u0000-\u001f\u007f]/.test(value)) return routes.ranking;
+  try {
+    decodeURIComponent(value);
+    const url = new URL(value, "https://alervi.local");
+    if (url.origin !== "https://alervi.local" || url.pathname !== routes.ranking) return routes.ranking;
+    const search = rankingFilterKey(url.searchParams);
+    if (!parseRankingSearch(new URLSearchParams(search)).query) return routes.ranking;
+    return `${routes.ranking}${search ? `?${search}` : ""}`;
+  } catch {
+    return routes.ranking;
+  }
+}
+
+export function publicMapHref(id: number, returnTo: string): string {
+  if (!Number.isSafeInteger(id) || id < 1) throw new RangeError("El identificador del punto debe ser un entero positivo.");
+  const search = new URLSearchParams({ punto: String(id), returnTo: safeRankingReturnTo(returnTo) });
+  return `${routes.map}?${search}`;
 }
 
 function safePointReturnTo(value: string | undefined): string {

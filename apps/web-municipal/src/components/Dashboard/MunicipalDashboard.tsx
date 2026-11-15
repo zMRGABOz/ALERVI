@@ -37,16 +37,15 @@ export function MunicipalDashboard() {
           </div>
           <RiskMap
             points={map.points}
-            selectedId={dashboard.selectedId}
+            selectedId={dashboard.selectedMapId}
             selectionRevision={dashboard.selectionRevision}
             focusPoint={dashboard.focusPoint}
             onSelect={dashboard.selectMapPoint}
-            ariaLabel="Mapa de Concepción con capa pública general y ubicación consultada del ranking"
+            ariaLabel="Mapa resumido de Concepción con datos públicos generales"
           />
-          <p className="panel-footer"><Icon name="info" size={16} /> La capa pública general no aplica el período del ranking. Al elegir una prioridad se consulta su ubicación.</p>
-          <p className="sr-only" role="status">{dashboard.selectedName
-            ? `Punto enfocado: ${dashboard.selectedName}. Origen: ${dashboard.selectionSource === "ranking" ? "ranking municipal" : "capa pública general"}.`
-            : "Sin punto enfocado."}</p>
+          <p className="panel-footer"><Icon name="info" size={16} /> La capa pública general no aplica el período del ranking. Al elegir una prioridad se busca su ubicación en los datos públicos.</p>
+          {dashboard.missingPublicLocation && <p className="dashboard-map-status" role="status">La prioridad seleccionada no está disponible en el mapa público.</p>}
+          <p className="sr-only" role="status">{dashboard.selectedName ? `Seleccionado: ${dashboard.selectedName}.` : "Sin punto seleccionado."}</p>
         </section>
         <TopPointsPanel query={dashboard.ranking} selectedId={dashboard.selectedId} onSelect={dashboard.selectPriority} />
       </div>

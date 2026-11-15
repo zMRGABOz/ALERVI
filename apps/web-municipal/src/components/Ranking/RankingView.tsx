@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
 import { initialRankingQuery } from "../../config/ranking";
-import { pointDetailHref, routes } from "../../config/routes";
+import { pointDetailHref, publicMapHref, routes, safeRankingReturnTo } from "../../config/routes";
 import { useRanking } from "../../hooks/useRanking";
 import { useRankingFilters } from "../../hooks/useRankingFilters";
 import { RankingFilters } from "../Filters/RankingFilters";
@@ -16,19 +15,14 @@ import { UnscoredPoints } from "./UnscoredPoints";
 export function RankingView() {
   const filters = useRankingFilters();
   const query = useRanking(filters.query);
-  const [selection, setSelection] = useState<{ id: number | null; queryKey: string } | null>(null);
-  const selected = selection?.queryKey === query.queryKey ? query.data?.puntos.find((point) => point.id_punto === selection.id) ?? null : null;
   const accessError = query.status === "unauthenticated" || query.status === "forbidden";
   const limit = filters.query?.limit ?? initialRankingQuery.limit;
   const offset = filters.query?.offset ?? 0;
-
-  function togglePoint(id: number) {
-    setSelection((previous) => ({ id: previous?.queryKey === query.queryKey && previous.id === id ? null : id, queryKey: query.queryKey }));
-  }
+  const returnTo = safeRankingReturnTo(`${routes.ranking}${filters.formKey ? `?${filters.formKey}` : ""}`);
 
   function detailHref(id: number) {
     return pointDetailHref(id, {
-      returnTo: `${routes.ranking}${filters.formKey ? `?${filters.formKey}` : ""}`,
+      returnTo,
       rankingPeriod: query.data?.periodo,
       rankingVersion: query.data?.configuracion_version,
     });
@@ -61,12 +55,7 @@ export function RankingView() {
               <div><h2 id="titulo-ranking">{offset ? "Resultados comunales" : `Top ${limit} comunal`}</h2><p>{query.data.puntos.length} puntos con índice recibidos · máximo solicitado: {limit}{offset ? ` · desplazamiento solicitado: ${offset}` : ""}</p></div>
               <span className="status-badge"><Icon name="ranking" size={14} /> Prioridad relativa</span>
             </div>
-            <RankingTable points={query.data.puntos} selectedId={selected?.id_punto ?? null} onSelect={togglePoint} detailHref={detailHref} />
-            {query.data.puntos.length > 0 && (
-              <p className="sr-only" role="status">{selected
-                ? `Seleccionado: ${selected.nombre_interseccion}. Posición informada: ${selected.posicion_ranking}.`
-                : "Sin punto seleccionado."}</p>
-            )}
+            <RankingTable points={query.data.puntos} detailHref={detailHref} locationHref={(id) => publicMapHref(id, returnTo)} />
           </section>
           <UnscoredPoints points={query.data.puntos_sin_indice} detailHref={detailHref} />
         </>

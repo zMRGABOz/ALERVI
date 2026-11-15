@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useRef } from "react";
 import { initialRankingQuery } from "../../config/ranking";
 import { riskLevels } from "../../config/risk-levels";
 import { pointDetailHref, routes } from "../../config/routes";
@@ -21,6 +22,18 @@ type TopPointsPanelProps = {
 };
 
 export function TopPointsPanel({ query, selectedId, onSelect }: TopPointsPanelProps) {
+  const listRef = useRef<HTMLUListElement>(null);
+
+  useEffect(() => {
+    const list = listRef.current;
+    const selected = list?.querySelector<HTMLElement>('[data-selected="true"]');
+    if (!list || !selected) return;
+    const item = selected.getBoundingClientRect();
+    const viewport = list.getBoundingClientRect();
+    if (item.top < viewport.top) list.scrollTop -= viewport.top - item.top;
+    else if (item.bottom > viewport.bottom) list.scrollTop += item.bottom - viewport.bottom;
+  }, [selectedId, query.data]);
+
   return (
     <section className="surface-card top-points-panel" aria-labelledby="titulo-panel-prioridades">
       <div className="panel-header">
@@ -39,7 +52,7 @@ export function TopPointsPanel({ query, selectedId, onSelect }: TopPointsPanelPr
       ) : (
         <>
           {query.data.puntos.length ? (
-            <ul className="top-point-list" aria-label="Prioridades del ranking municipal">
+            <ul ref={listRef} className="top-point-list" aria-label="Prioridades del ranking municipal">
               {query.data.puntos.map((point) => (
                 <li key={point.id_punto} className="top-point-card" data-selected={point.id_punto === selectedId}>
                   <button

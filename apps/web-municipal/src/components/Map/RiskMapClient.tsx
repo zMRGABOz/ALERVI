@@ -124,9 +124,8 @@ function pointPopup(point: PublicRiskPoint, scopeLabel: string, onClose: () => v
 }
 
 function updateSelection(map: MapLibreMap, popup: Popup, snapshot: MapSnapshot) {
-  if (map.getLayer(SELECTION_LAYER)) {
-    map.setFilter(SELECTION_LAYER, ["==", ["get", "id_punto"], snapshot.selectedId ?? -1]);
-  }
+  if (!map.getLayer(SELECTION_LAYER)) return;
+  map.setFilter(SELECTION_LAYER, ["==", ["get", "id_punto"], snapshot.selectedId ?? -1]);
   const selected = snapshot.points.find((point) => point.id_punto === snapshot.selectedId);
   popup.remove();
   if (!selected) return;
@@ -141,6 +140,7 @@ function updateSelection(map: MapLibreMap, popup: Popup, snapshot: MapSnapshot) 
   popup.setLngLat(position)
     .setDOMContent(pointPopup(selected, snapshot.scopeLabel, () => {
       popup.remove();
+      snapshot.onSelect(selected.id_punto);
       map.getCanvas().focus({ preventScroll: true });
     }))
     .addTo(map);
@@ -176,7 +176,7 @@ export default function RiskMapClient({ points, selectedId, selectionRevision = 
     snapshotRef.current = snapshot;
     const map = mapRef.current;
     const popup = popupRef.current;
-    if (!map || !popup) return;
+    if (!map || !popup || !map.getLayer(POINTS_LAYER)) return;
     const pointsChanged = previous.points !== displayedPoints;
     if (pointsChanged && colorsRef.current) {
       const source = map.getSource(POINTS_SOURCE);

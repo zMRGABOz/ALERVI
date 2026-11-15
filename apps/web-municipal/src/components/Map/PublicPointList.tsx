@@ -34,7 +34,6 @@ export function PublicPointList({
             <div className="public-point-card__priority">
               <RiskBadge level={point.nivel_riesgo} />
               <span>IP <strong>{formatRiskIndex(point.indice_prioridad)}</strong>/100</span>
-              {selected && <span className="public-point-card__selected">Seleccionado</span>}
             </div>
             <dl className="public-point-counts">
               <div><dt>Siniestros</dt><dd>{point.total_siniestros}</dd></div>

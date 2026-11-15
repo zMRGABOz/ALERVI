@@ -743,6 +743,54 @@ body:has(.navigation-dialog[open]) {
   max-width: none;
 }
 
+html:has(.public-map-return) {
+  scroll-padding-top: 6rem;
+}
+
+.public-map-return {
+  position: sticky;
+  top: max(12px, env(safe-area-inset-top));
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+  margin-bottom: 24px;
+  padding: 12px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  box-shadow: 0 4px 16px rgb(23 50 77 / 10%);
+}
+
+.public-map-return__link {
+  flex-shrink: 0;
+}
+
+.public-map-return__link > span[aria-hidden="true"] {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.public-map-return__context {
+  min-width: 0;
+  color: var(--color-text-muted);
+  text-align: right;
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.public-map-return__context span,
+.public-map-return__context strong {
+  display: block;
+}
+
+.public-map-return__context strong {
+  color: var(--color-heading);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
 .public-map-context,
 .risk-map-toolbar {
   display: flex;
@@ -970,15 +1018,6 @@ body:has(.navigation-dialog[open]) {
   background: var(--color-risk-critical-bg);
 }
 
-.public-selection-status {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--color-border);
-  color: var(--color-text-muted);
-  background: var(--color-surface-muted);
-  font-size: 0.75rem;
-  line-height: 1.6;
-}
-
 .public-point-list {
   max-height: 610px;
   padding: 12px;
@@ -986,6 +1025,7 @@ body:has(.navigation-dialog[open]) {
 }
 
 .public-point-card {
+  position: relative;
   padding: 12px;
   border: 1px solid var(--color-border);
   border-radius: 8px;
@@ -1017,6 +1057,23 @@ body:has(.navigation-dialog[open]) {
   cursor: pointer;
 }
 
+/* El botón nativo abarca la tarjeta completa y mantiene Enter/Espacio. */
+.public-point-select::after {
+  position: absolute;
+  inset: -1px;
+  border-radius: 8px;
+  content: "";
+}
+
+.public-point-select:focus-visible {
+  outline: none;
+}
+
+.public-point-select:focus-visible::after {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 3px;
+}
+
 .public-point-select svg {
   flex-shrink: 0;
 }
@@ -1032,12 +1089,6 @@ body:has(.navigation-dialog[open]) {
   gap: 8px;
   margin-top: 8px;
   font-size: 0.8125rem;
-}
-
-.public-point-card__selected {
-  color: var(--color-primary);
-  font-size: 0.6875rem;
-  font-weight: 600;
 }
 
 .public-point-counts {
@@ -1072,7 +1123,11 @@ body:has(.navigation-dialog[open]) {
 }
 
 @media (hover: hover) {
-  .public-point-select:hover,
+  .public-point-card:not([data-selected="true"]):hover {
+    border-color: var(--color-control-border);
+    background: var(--color-surface-muted);
+  }
+
   .inline-link:hover {
     color: var(--color-primary-hover);
     text-decoration: underline;
@@ -1097,6 +1152,22 @@ body:has(.navigation-dialog[open]) {
 @media (width < 40rem) {
   .public-map-main {
     padding: 24px 16px;
+  }
+
+  html:has(.public-map-return) {
+    scroll-padding-top: 9rem;
+  }
+
+  .public-map-return {
+    top: max(8px, env(safe-area-inset-top));
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .public-map-return__context {
+    text-align: center;
   }
 
   .public-map-header .button-secondary {
@@ -1284,7 +1355,7 @@ body:has(.navigation-dialog[open]) {
 
 .ranking-table {
   width: 100%;
-  min-width: 880px;
+  min-width: 1020px;
   border-collapse: collapse;
   color: var(--color-text);
   font-size: 0.8125rem;
@@ -1313,6 +1384,9 @@ body:has(.navigation-dialog[open]) {
 .ranking-table tbody th {
   width: 34%;
   min-width: 210px;
+  color: var(--color-heading);
+  font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .ranking-table .ranking-intersection {
@@ -1333,27 +1407,6 @@ body:has(.navigation-dialog[open]) {
 .ranking-index {
   color: var(--color-heading);
   font-weight: 600;
-}
-
-.ranking-point-select {
-  display: block;
-  min-height: 44px;
-  width: 100%;
-  padding: 4px 0;
-  border-radius: 4px;
-  color: var(--color-primary);
-  text-align: left;
-  font-weight: 600;
-  cursor: pointer;
-  overflow-wrap: anywhere;
-}
-
-.ranking-table tr[data-selected="true"] {
-  background: var(--color-selected-bg);
-}
-
-.ranking-table tr[data-selected="true"] td:first-child {
-  box-shadow: inset 3px 0 var(--color-primary);
 }
 
 .unscored-point-list {
@@ -1801,14 +1854,8 @@ body:has(.navigation-dialog[open]) {
 }
 
 @media (hover: hover) {
-  .ranking-table tbody tr:not([data-selected="true"]):hover {
+  .ranking-table tbody tr:hover {
     background: var(--color-surface-muted);
-  }
-
-  .ranking-point-select:hover {
-    color: var(--color-primary-hover);
-    text-decoration: underline;
-    text-underline-offset: 3px;
   }
 }
 

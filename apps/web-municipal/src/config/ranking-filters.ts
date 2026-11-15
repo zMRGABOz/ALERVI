@@ -15,6 +15,14 @@ export type RankingFiltersValue = { limit: TopLimit } & (
 
 const FILTER_PARAMS = ["anio", "periodo_inicio", "periodo_fin", "limit", "offset", "comuna"] as const;
 
+export function rankingFilterKey(search: URLSearchParams): string {
+  const filters = new URLSearchParams();
+  for (const name of FILTER_PARAMS) {
+    for (const value of search.getAll(name)) filters.append(name, value);
+  }
+  return filters.toString();
+}
+
 export function defaultRankingFilterFields(): RankingFilterFields {
   return {
     mode: "rango",

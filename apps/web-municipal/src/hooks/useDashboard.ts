@@ -13,25 +13,16 @@ export function useDashboard() {
   const [selection, setSelection] = useState<Selection>({ id: null, source: "ranking", revision: 0 });
   const selectedPriority = ranking.data?.puntos.find((point) => point.id_punto === selection.id) ?? null;
   const selectedPublicPoint = map.points.find((point) => point.id_punto === selection.id) ?? null;
-  const period = ranking.data?.periodo;
+  const selectedPoint = selection.source === "ranking" ? selectedPriority : selectedPublicPoint;
 
   const focusPoint = useMemo<MapFocusPoint | null>(() => {
-    if (selection.source !== "ranking" || !selectedPriority || !period) return null;
+    if (selection.source !== "ranking" || !selectedPriority || !selectedPublicPoint) return null;
+    // El mismo ID ubica la prioridad sin sustituir métricas públicas por las del ranking.
     return {
-      point: {
-        id_punto: selectedPriority.id_punto,
-        nombre_interseccion: selectedPriority.nombre_interseccion,
-        comuna: selectedPriority.comuna,
-        position: [selectedPriority.latitud, selectedPriority.longitud],
-        nivel_riesgo: selectedPriority.nivel_riesgo,
-        indice_prioridad: selectedPriority.indice_prioridad,
-        total_siniestros: selectedPriority.total_siniestros,
-        total_fallecidos: selectedPriority.total_fallecidos,
-        total_graves: selectedPriority.total_graves,
-      },
-      scopeLabel: `Ranking municipal · Período ${period}. La capa pública general se consulta por separado.`,
+      point: selectedPublicPoint,
+      scopeLabel: "Capa pública general, sin filtro temporal. Punto localizado desde las prioridades municipales.",
     };
-  }, [selectedPriority, period, selection.source]);
+  }, [selection.source, selectedPriority, selectedPublicPoint]);
 
   function selectPriority(id: number) {
     if (!ranking.data?.puntos.some((point) => point.id_punto === id)) return;
@@ -39,9 +30,8 @@ export function useDashboard() {
   }
 
   function selectMapPoint(id: number) {
-    const source = focusPoint?.point.id_punto === id ? "ranking" : "public";
-    if (source === "public" && !map.points.some((point) => point.id_punto === id)) return;
-    setSelection((previous) => ({ id: previous.id === id ? null : id, source, revision: previous.revision + 1 }));
+    if (!map.points.some((point) => point.id_punto === id)) return;
+    setSelection((previous) => ({ id: previous.id === id ? null : id, source: "public", revision: previous.revision + 1 }));
   }
 
   const refreshRanking = ranking.refetch;
@@ -50,15 +40,15 @@ export function useDashboard() {
     refreshRanking();
     refreshMap();
   }, [refreshRanking, refreshMap]);
-  const selectedPoint = selection.source === "ranking" ? selectedPriority : selectedPublicPoint;
 
   return {
     ranking,
     map,
     focusPoint,
     selectedId: selectedPoint?.id_punto ?? null,
+    selectedMapId: selectedPoint && selectedPublicPoint ? selectedPublicPoint.id_punto : null,
     selectedName: selectedPoint?.nombre_interseccion ?? null,
-    selectionSource: selection.source,
+    missingPublicLocation: selection.source === "ranking" && selectedPriority !== null && map.status === "success" && selectedPublicPoint === null,
     selectionRevision: selection.revision,
     selectPriority,
     selectMapPoint,
