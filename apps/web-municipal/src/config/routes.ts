@@ -3,6 +3,7 @@ import { parseRankingSearch, rankingFilterKey } from "./ranking-filters";
 export const routes = {
   home: "/",
   map: "/mapa",
+  login: "/login",
   summary: "/resumen",
   ranking: "/ranking",
   terreno: "/terreno",
@@ -123,4 +124,35 @@ export function parseInspectionNavigationContext(search: Record<string, string |
     hasOrigin: typeof search.volver === "string",
     invalid: (search.punto !== undefined && id === null) || !validView,
   };
+}
+
+export function safeLoginReturnTo(value: string | undefined): string {
+  if (!value || value.length > 8192 || value !== value.trim() || !value.startsWith("/") || value.startsWith("//") || value.includes("\\") || /[\u0000-\u001f\u007f]/.test(value)) return routes.summary;
+  try {
+    decodeURIComponent(value);
+    const url = new URL(value, "https://alervi.local");
+    if (url.origin !== "https://alervi.local") return routes.summary;
+    if (url.pathname === routes.summary) return routes.summary;
+    if (url.pathname === routes.ranking) return safeRankingReturnTo(value);
+    const search: Record<string, string | undefined> = {};
+    for (const name of ["punto", "vista", "volver", "periodo_origen", "version_origen"]) {
+      const values = url.searchParams.getAll(name);
+      if (values.length > 1) return routes.summary;
+      search[name] = values[0];
+    }
+    const match = /^\/puntos\/([1-9]\d*)$/.exec(url.pathname);
+    const id = match ? parsePointId(match[1]) : null;
+    if (id !== null) return pointDetailHref(id, parsePointNavigationContext(search));
+    if (url.pathname === routes.terreno) {
+      const context = parseInspectionNavigationContext(search);
+      if (!context.invalid) return inspectionHref(context.id, context.view, context.hasOrigin ? context.returnTo : undefined);
+    }
+    return routes.summary;
+  } catch {
+    return routes.summary;
+  }
+}
+
+export function loginHref(returnTo?: string): string {
+  return `${routes.login}?${new URLSearchParams({ returnTo: safeLoginReturnTo(returnTo) })}`;
 }

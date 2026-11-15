@@ -120,6 +120,115 @@ body {
   transform: translateY(0);
 }
 
+.login-shell {
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+}
+
+.login-header {
+  flex-wrap: wrap;
+}
+
+.login-main {
+  width: 100%;
+  max-width: 528px;
+  margin: auto;
+  padding: 40px 20px 24px;
+}
+
+.login-card {
+  padding: clamp(20px, 4vw, 32px);
+}
+
+.login-heading {
+  margin-bottom: 28px;
+}
+
+.login-symbol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 20px;
+  border-radius: 12px;
+  color: var(--color-primary);
+  background: var(--color-selected-bg);
+}
+
+.login-heading h1 {
+  color: var(--color-heading);
+  font-size: clamp(1.5rem, 4vw, 1.875rem);
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.login-form,
+.login-session {
+  display: grid;
+  gap: 20px;
+}
+
+.login-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.login-field label {
+  color: var(--color-heading);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.login-field input {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-control-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  font-size: 1rem;
+}
+
+.login-field input[aria-invalid="true"] {
+  border-color: var(--color-risk-critical);
+}
+
+.login-form button:disabled,
+.login-field input:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.login-message,
+.login-session-notice {
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: var(--color-risk-critical);
+  background: var(--color-risk-critical-bg);
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+
+.login-message--information,
+.login-session-notice {
+  color: var(--color-info);
+  background: var(--color-info-bg);
+}
+
+.login-session-notice {
+  margin-bottom: 20px;
+}
+
+.login-session > p {
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.7;
+}
+
 .municipal-shell {
   min-height: 100svh;
 }
@@ -733,13 +842,15 @@ body:has(.navigation-dialog[open]) {
 
 .public-map-page .summary-heading > div,
 .ranking-page .summary-heading > div,
-.dashboard-page .summary-heading > div {
+.dashboard-page .summary-heading > div,
+.inspection-workspace > .summary-heading > div {
   flex: 1 1 30rem;
 }
 
 .public-map-page .summary-heading__description,
 .ranking-page .summary-heading__description,
-.dashboard-page .summary-heading__description {
+.dashboard-page .summary-heading__description,
+.inspection-workspace > .summary-heading .summary-heading__description {
   max-width: none;
 }
 
@@ -1741,6 +1852,10 @@ html:has(.public-map-return) {
   display: grid;
   min-width: 0;
   gap: 24px;
+}
+
+.inspection-workspace > .summary-heading .summary-heading__description {
+  text-wrap: pretty;
 }
 
 .inspection-origin {

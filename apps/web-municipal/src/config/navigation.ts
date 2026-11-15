@@ -1,6 +1,6 @@
 import type { IconName } from "../components/UI/Icon";
 import type { SessionRole } from "../types/session";
-import { routes } from "./routes";
+import { loginHref, routes } from "./routes";
 
 type NavigationItem = {
   id: string;
@@ -21,7 +21,7 @@ type NavigationGroup = {
 export const navigationDialogId = "menu-municipal";
 const municipalRoles: readonly SessionRole[] = ["inspector", "administrador"];
 
-export const municipalEntry = { label: "Espacio municipal", href: routes.summary } as const;
+export const municipalEntry = { label: "Espacio municipal", href: loginHref(routes.summary) } as const;
 export const publicNavigation = [{ id: "map", label: "Mapa público", icon: "map", href: routes.map }] as const;
 
 export const municipalNavigation: readonly NavigationGroup[] = [

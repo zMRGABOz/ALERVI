@@ -1,6 +1,6 @@
 import { canUseDemoSession } from "../config/demo-session";
 import type { components } from "../types/api.generated";
-import { isSessionRole, type Session } from "../types/session";
+import { isSessionRole, type Session, type SessionUser } from "../types/session";
 import type { ApiTransport } from "../services/transport";
 import { demoInspectionFactors, demoInspectionPoints } from "./inspection-fixtures";
 import {
@@ -253,7 +253,7 @@ export function createMockTransport({
     }
   ];
 
-  function authenticate(session?: Session): Schema["UsuarioResponse"] {
+  function authenticate(session?: Session): SessionUser {
     if (
       scenario === "unauthenticated" || !canUseDemoSession() ||
       session?.source !== "demo" || session.accessToken !== null ||
