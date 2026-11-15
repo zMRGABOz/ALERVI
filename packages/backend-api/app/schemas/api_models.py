@@ -16,9 +16,10 @@ endpoints del sistema ALERVI:
 - Auditoria y Trazabilidad (/api/v1/auditoria)
 """
 
+from datetime import date
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ============================================================================
@@ -387,6 +388,18 @@ class FichaInspeccionCreateRequest(BaseModel):
         description="IDs de factores de riesgo activos observados (tabla registra)",
     )
 
+    @field_validator("fecha_visita")
+    @classmethod
+    def validar_fecha_no_futura(cls, v: str) -> str:
+        if v:
+            try:
+                fv = date.fromisoformat(v)
+            except ValueError:
+                raise ValueError("Formato de fecha inválido. Se espera YYYY-MM-DD")
+            if fv > date.today():
+                raise ValueError("La fecha de visita no puede ser una fecha futura")
+        return v
+
 
 class FichaInspeccionUpdateRequest(BaseModel):
     fecha_visita: Optional[str] = Field(
@@ -396,6 +409,18 @@ class FichaInspeccionUpdateRequest(BaseModel):
         None, max_length=500, example="Actualización de notas de inspección."
     )
     factores_riesgo_ids: Optional[List[int]] = Field(None, example=[1, 2])
+
+    @field_validator("fecha_visita")
+    @classmethod
+    def validar_fecha_no_futura(cls, v: Optional[str]) -> Optional[str]:
+        if v:
+            try:
+                fv = date.fromisoformat(v)
+            except ValueError:
+                raise ValueError("Formato de fecha inválido. Se espera YYYY-MM-DD")
+            if fv > date.today():
+                raise ValueError("La fecha de visita no puede ser una fecha futura")
+        return v
 
 
 class FichaInspeccionResponse(BaseModel):

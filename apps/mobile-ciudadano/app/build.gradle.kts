@@ -1,3 +1,4 @@
+import java.util.Properties
 import org.gradle.testing.jacoco.tasks.JacocoCoverageVerification
 import org.gradle.testing.jacoco.tasks.JacocoReport
 
@@ -65,6 +66,31 @@ android {
         }
     }
 
+    fun resolverBaseUrlLocal(): String {
+        val propGradle = project.findProperty("alervi.backend.url") as? String
+        if (!propGradle.isNullOrBlank()) {
+            return if (propGradle.endsWith("/")) propGradle else "$propGradle/"
+        }
+        val posiblesArchivos =
+            listOf(
+                rootProject.file("local.properties"),
+                project.file("local.properties"),
+                rootProject.file("../local.properties"),
+                rootProject.file("../../local.properties"),
+            )
+        for (archivo in posiblesArchivos) {
+            if (archivo.exists()) {
+                val props = Properties()
+                archivo.inputStream().use { props.load(it) }
+                val propLocal = props.getProperty("alervi.backend.url")
+                if (!propLocal.isNullOrBlank()) {
+                    return if (propLocal.endsWith("/")) propLocal else "$propLocal/"
+                }
+            }
+        }
+        return "http://10.0.2.2:8000/"
+    }
+
     flavorDimensions += "entorno"
     productFlavors {
         create("mock") {
@@ -79,9 +105,11 @@ android {
             dimension = "entorno"
             applicationIdSuffix = ".local"
             versionNameSuffix = "-local"
-            // Backend local del repo (docker compose up): FastAPI en 10.0.2.2:8000.
+            // Backend local del repo (docker compose up): configurable dinámicamente vía
+            // propiedad Gradle -Palervi.backend.url o local.properties con fallback a 10.0.2.2 (RD-04, RNF-S-3).
+            val urlBackendLocal = resolverBaseUrlLocal()
             buildConfigField("boolean", "MODO_SIN_RED", "false")
-            buildConfigField("String", "BASE_URL", "\"http://10.0.2.2:8000/\"")
+            buildConfigField("String", "BASE_URL", "\"$urlBackendLocal\"")
         }
     }
 

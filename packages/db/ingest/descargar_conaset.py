@@ -3,7 +3,6 @@
 import argparse
 import json
 import sys
-
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -19,8 +18,8 @@ CAMPO_ORDEN = "FID"
 
 RUTA_SALIDA = Path(__file__).parent / "data" / "conaset.geojson"
 
-def descargar_conaset():
 
+def descargar_conaset():
 
     params = {
         "where": "1=1",
@@ -57,8 +56,11 @@ def descargar_conaset():
 
     raise RuntimeError(f"Se alcanzó el maximo de paginas: {MAX_PAGINAS}")
 
+
 def main():
-    ap = argparse.ArgumentParser(description="Descarga de puntos criticos de CONASET (Formato GeoJSON)")
+    ap = argparse.ArgumentParser(
+        description="Descarga de puntos criticos de CONASET (Formato GeoJSON)"
+    )
     ap.add_argument("--salida", default=RUTA_SALIDA, help="ruta del GeoJSON de salida")
     args = ap.parse_args()
 
@@ -71,7 +73,9 @@ def main():
         sys.exit("La API no retornó ningun registro")
 
     with open(args.salida, "w", encoding="utf-8") as f:
-        json.dump({"type": "FeatureCollection", "features": features}, f, ensure_ascii=False)
+        json.dump(
+            {"type": "FeatureCollection", "features": features}, f, ensure_ascii=False
+        )
 
     propiedades = [ft.get("properties") or {} for ft in features]
     ids = [p["FID"] for p in propiedades if p.get("FID") is not None]
@@ -82,11 +86,14 @@ def main():
     print(f"Registros descargados: {len(features)}")
     print(f"Registros sin FID: {len(features) - len(ids)}")
     print(f"FID repetidos: {len(ids) - len(set(ids))}")
-    print(f"Registros sin geometria: {sum(1 for ft in features if not ft.get('geometry'))}")
+    print(
+        f"Registros sin geometria: {sum(1 for ft in features if not ft.get('geometry'))}"
+    )
     print("Registros por año:")
     for anio, n in sorted(por_anio.items(), key=lambda x: str(x[0])):
         print(f"    {anio} : {n}")
     print(f"Archivos guardados en: {args.salida}")
+
 
 if __name__ == "__main__":
     sys.exit(main())

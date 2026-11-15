@@ -4,11 +4,13 @@ Pruebas unitarias para spatial_service y crud_service.
 Garantiza cobertura > 85% sobre la logica de negocio, queries PostGIS y CRUD.
 """
 
+import uuid
 from datetime import date, datetime, timezone
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.core.security import get_password_hash
 from app.schemas.api_models import (
     AlertCheckRequest,
     CargaDatosBatchRequest,
@@ -164,8 +166,7 @@ def test_obtener_ranking_mock():
     mock_row.total_menos_graves = 4
     mock_row.total_leves = 10
 
-    mock_db.query.return_value.join.return_value.filter.return_value.scalar.return_value = 1
-    mock_db.query.return_value.join.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.order_by.return_value.offset.return_value.limit.return_value.all.return_value = [
+    mock_db.query.return_value.join.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.all.return_value = [
         mock_row
     ]
 
@@ -187,6 +188,106 @@ def test_obtener_ranking_mock():
     mock_db_err.query.side_effect = RuntimeError("Error en ranking")
     fb_err = spatial_service.obtener_ranking(mock_db_err)
     assert fb_err.total_puntos >= 1
+
+
+def test_ranking_f01_filtro_anio_individual():
+    """F-01: Verifica que anio individual establezca el rango y periodo exacto."""
+    mock_db = MagicMock()
+    mock_row = MagicMock()
+    mock_row.id_punto = 201
+    mock_row.lon = -73.05
+    mock_row.lat = -36.82
+    mock_row.comuna_nombre = "Concepción"
+    mock_row.total_siniestros = 15
+    mock_row.total_fallecidos = 1
+    mock_row.total_graves = 3
+    mock_row.total_menos_graves = 2
+    mock_row.total_leves = 9
+
+    mock_db.query.return_value.join.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.all.return_value = [
+        mock_row
+    ]
+
+    res = spatial_service.obtener_ranking(mock_db, comuna="Concepción", anio=2024)
+    assert res.periodo == "2024"
+    assert res.total_puntos == 1
+    assert res.puntos[0].id_punto == 201
+
+
+def test_ranking_f02_orden_por_ip_y_desempates_rb7():
+    """F-02: Verifica que el orden se rija por IP y desempates RB-7, no por total de siniestros."""
+    mock_db = MagicMock()
+
+    # Punto A: 20 siniestros, 0 fallecidos, 0 graves, 20 leves -> IP menor (29.5)
+    punto_a = MagicMock()
+    punto_a.id_punto = 1
+    punto_a.lon = -73.051
+    punto_a.lat = -36.821
+    punto_a.comuna_nombre = "Concepción"
+    punto_a.total_siniestros = 20
+    punto_a.total_fallecidos = 0
+    punto_a.total_graves = 0
+    punto_a.total_menos_graves = 0
+    punto_a.total_leves = 20
+
+    # Punto B: 5 siniestros, 3 fallecidos, 2 graves -> IP mayor (52.7)
+    punto_b = MagicMock()
+    punto_b.id_punto = 2
+    punto_b.lon = -73.052
+    punto_b.lat = -36.822
+    punto_b.comuna_nombre = "Concepción"
+    punto_b.total_siniestros = 5
+    punto_b.total_fallecidos = 3
+    punto_b.total_graves = 2
+    punto_b.total_menos_graves = 0
+    punto_b.total_leves = 0
+
+    # Punto C: empatado en IP con B (3 fall, 2 grav, 5 sin), pero con id_punto mayor (3)
+    punto_c = MagicMock()
+    punto_c.id_punto = 3
+    punto_c.lon = -73.053
+    punto_c.lat = -36.823
+    punto_c.comuna_nombre = "Concepción"
+    punto_c.total_siniestros = 5
+    punto_c.total_fallecidos = 3
+    punto_c.total_graves = 2
+    punto_c.total_menos_graves = 0
+    punto_c.total_leves = 0
+
+    # Retornamos en orden A, B, C a la salida de BD
+    mock_db.query.return_value.join.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.all.return_value = [
+        punto_a,
+        punto_b,
+        punto_c,
+    ]
+
+    res = spatial_service.obtener_ranking(mock_db, limit=10, offset=0)
+    assert res.total_puntos == 3
+
+    # El punto B debe ser 1ro por mayor IP (52.7 > 29.5)
+    assert res.puntos[0].id_punto == 2
+    assert res.puntos[0].posicion_ranking == 1
+    assert res.puntos[0].indice_prioridad > res.puntos[2].indice_prioridad
+
+    # El punto C debe ser 2do (empata en IP con B, desempata por id_punto ascendente 2 < 3)
+    assert res.puntos[1].id_punto == 3
+    assert res.puntos[1].posicion_ranking == 2
+
+    # El punto A debe ser 3ro pese a tener 20 siniestros
+    assert res.puntos[2].id_punto == 1
+    assert res.puntos[2].posicion_ranking == 3
+
+
+def test_ranking_f03_respuesta_vacia_legitima():
+    """F-03: Verifica que una consulta sin registros devuelva lista vacía y no el fallback prefijado."""
+    mock_db = MagicMock()
+    mock_db.query.return_value.join.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.all.return_value = []
+
+    res = spatial_service.obtener_ranking(mock_db, comuna="ComunaSinPuntos")
+    assert res.total_puntos == 0
+    assert res.puntos == []
+    # No debe tener el id_punto 101 del fallback fijo
+    assert all(p.id_punto != 101 for p in res.puntos)
 
 
 def test_obtener_detalle_punto_mock():
@@ -259,7 +360,7 @@ def test_evaluar_alerta_proximidad_cinematica():
     )
     res_lenta = spatial_service.evaluar_alerta_proximidad(mock_db, req_lenta)
     assert res_lenta.alerta_activa is False
-    assert res_lenta.telemetria_status == "SUPRIMIDA_VELOCIDAD"
+    assert res_lenta.telemetria_status == "SUPRIMIDO_VELOCIDAD_BAJA"
 
     # 2. Mock de punto cercano dentro de 200m
     mock_row = MagicMock()
@@ -270,6 +371,9 @@ def test_evaluar_alerta_proximidad_cinematica():
     mock_row.fallecidos = 2
     mock_row.total_siniestros = 30
 
+    mock_db.query.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.order_by.return_value.all.return_value = [
+        mock_row
+    ]
     mock_db.query.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.order_by.return_value.first.return_value = mock_row
 
     req_alerta = AlertCheckRequest(
@@ -284,15 +388,56 @@ def test_evaluar_alerta_proximidad_cinematica():
     assert res_activa.alerta_activa is True
     assert res_activa.alerta.id_punto == 101
     assert res_activa.alerta.nivel_riesgo == "CRITICO"
-    assert res_activa.alerta.patron_sonoro == "BEEP_CRITICO"
+    assert res_activa.alerta.patron_sonoro == "BEEP_URGENTE"
 
     # 3. Punto lejano (no encontrado en 200m)
+    mock_db.query.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.order_by.return_value.all.return_value = []
     mock_db.query.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.order_by.return_value.first.return_value = None
     res_lejos = spatial_service.evaluar_alerta_proximidad(mock_db, req_alerta)
     assert res_lejos.alerta_activa is False
-    assert res_lejos.telemetria_status == "EVALUADO_SIN_ALERTA"
+    assert res_lejos.telemetria_status == "SIN_PUNTOS_EN_RANGO"
 
-    # 4. Fallback con db=None
+    # 4. Trayectoria divergente (rumbo 180° alejandose del punto hacia el sur)
+    mock_db.query.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.order_by.return_value.all.return_value = [
+        mock_row
+    ]
+    req_div = AlertCheckRequest(
+        session_id="test-session-3",
+        latitude=-36.8210,
+        longitude=-73.0543,
+        speed_mps=13.88,
+        heading_degrees=180.0,
+        timestamp="2026-11-03T02:30:00Z",
+    )
+    res_div = spatial_service.evaluar_alerta_proximidad(mock_db, req_div)
+    assert res_div.alerta_activa is False
+    assert res_div.telemetria_status == "SUPRIMIDO_TRAYECTORIA_DIVERGENTE"
+
+    # 5. Acercamiento pero TTC > 12s
+    mock_row_lejos = MagicMock()
+    mock_row_lejos.id_punto = 102
+    mock_row_lejos.lat = -36.8190
+    mock_row_lejos.lon = -73.0543
+    mock_row_lejos.distancia_m = 180.0
+    mock_row_lejos.fallecidos = 0
+    mock_row_lejos.total_siniestros = 10
+
+    mock_db.query.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.order_by.return_value.all.return_value = [
+        mock_row_lejos
+    ]
+    req_ttc = AlertCheckRequest(
+        session_id="test-session-4",
+        latitude=-36.8210,
+        longitude=-73.0543,
+        speed_mps=5.0,  # 5 m/s -> TTC = 180 / 5 = 36s > 12s
+        heading_degrees=0.0,
+        timestamp="2026-11-03T02:30:00Z",
+    )
+    res_ttc = spatial_service.evaluar_alerta_proximidad(mock_db, req_ttc)
+    assert res_ttc.alerta_activa is False
+    assert res_ttc.telemetria_status == "SUPRIMIDO_TTC_MAYOR_12S"
+
+    # 6. Fallback con db=None
     fb = spatial_service.evaluar_alerta_proximidad(None, req_alerta)
     assert fb.alerta_activa is True
 
@@ -319,6 +464,7 @@ def test_crud_usuarios():
     mock_user.correo = "test@alervi.cl"
     mock_user.rol = "inspector"
     mock_user.activo = True
+    mock_user.hash_clave = get_password_hash("Password123*")
     mock_user.fecha_creacion = None
 
     mock_db.query.return_value.filter.return_value.first.return_value = mock_user
@@ -495,7 +641,10 @@ def test_crud_fichas_y_fotografias():
     # Adjuntar fotografia
     foto_res = crud_service.agregar_fotografia_ficha(mock_db, 10)
     assert foto_res.id_ficha == 10
-    assert "inspecciones/10/" in foto_res.ruta
+    uuid_str = foto_res.ruta.split(".")[0]
+    assert uuid.UUID(uuid_str)
+    assert foto_res.url is not None
+    assert "/fichas/" in foto_res.url
 
     # Fallback con db=None
     f_none = crud_service.obtener_ficha_por_id(None, 999)
@@ -551,3 +700,153 @@ def test_crud_auditoria_y_carga_vial():
     # Fallback con db=None
     fb_carga = crud_service.procesar_carga_vial(None, batch)
     assert fb_carga.estado == "COMPLETADA_CON_ADVERTENCIAS"
+
+
+def test_login_attempt_tracker_unit():
+    """Verifica lógica interna de conteo, bloqueo y expiración de LoginAttemptTracker (RNF-S-6)."""
+    from app.services.crud_service import LoginAttemptTracker
+
+    tracker = LoginAttemptTracker(max_attempts=5, lockout_duration_seconds=1)
+    email = "test.tracker@alervi.cl"
+
+    # Intentos 1 a 4
+    for i in range(1, 5):
+        intentos, is_locked = tracker.register_failed_attempt(email)
+        assert intentos == i
+        assert is_locked is False
+        assert tracker.is_locked(email) is False
+
+    # Intento 5: se bloquea
+    intentos, is_locked = tracker.register_failed_attempt(email)
+    assert intentos == 5
+    assert is_locked is True
+    assert tracker.is_locked(email) is True
+
+    # Intento 6 (mientras está bloqueado)
+    intentos, is_locked = tracker.register_failed_attempt(email)
+    assert is_locked is True
+
+    # Reseteo manual
+    tracker.reset_attempts(email)
+    assert tracker.is_locked(email) is False
+
+    # Expiración temporal automática
+    exp_tracker = LoginAttemptTracker(max_attempts=1, lockout_duration_seconds=0)
+    exp_tracker.register_failed_attempt("exp@alervi.cl")
+    # Al tener duración 0, inmediatamente ahora >= bloqueado_hasta
+    import time
+
+    time.sleep(0.01)
+    assert exp_tracker.is_locked("exp@alervi.cl") is False
+
+
+def test_authenticate_user_bloqueo_y_auditoria_unit():
+    """RNF-S-6 / RNF-S-4: Verifica que authenticate_user lanza 403/429 en el 6to intento y audita."""
+    from fastapi import HTTPException
+
+    from app.services.crud_service import (
+        authenticate_user,
+        registrar_evento_auditoria,
+        reset_login_attempts,
+    )
+
+    test_mail = "funcionario.bloqueo.unit@alervi.cl"
+    reset_login_attempts(test_mail)
+
+    try:
+        # 5 intentos fallidos levantan 401
+        for _ in range(5):
+            with pytest.raises(HTTPException) as exc_info:
+                authenticate_user(
+                    None,
+                    LoginRequest(correo=test_mail, password="ClaveInvalida123*"),
+                )
+            assert exc_info.value.status_code == 401
+
+        # El 6to intento levanta 403 o 429
+        with pytest.raises(HTTPException) as exc_info:
+            authenticate_user(
+                None,
+                LoginRequest(correo=test_mail, password="ClaveInvalida123*"),
+            )
+        assert exc_info.value.status_code in (403, 429)
+        assert "bloqueada" in exc_info.value.detail.lower()
+
+        # Registro directo en auditoría
+        ev = registrar_evento_auditoria(
+            None,
+            accion="login_fallido",
+            correo_usuario=test_mail,
+            detalles="Prueba unitaria de auditoría",
+        )
+        assert ev is None  # Con db=None retorna None pero guarda en buffer
+    finally:
+        reset_login_attempts(test_mail)
+
+
+def test_verify_mfa_code_unit():
+    """Verifica validación de segundo factor MFA (RFC 6238 y código canónico)."""
+    from app.core.config import settings
+    from app.core.security import verify_mfa_code
+
+    # Código canónico por defecto
+    assert verify_mfa_code("482910") is True
+
+    # Desactivación de código fijo en producción / configuración vacía
+    with patch.object(settings, "admin_mfa_default_code", ""):
+        assert verify_mfa_code("482910") is False
+
+    with patch.object(settings, "admin_mfa_default_code", "disabled"):
+        assert verify_mfa_code("482910") is False
+
+    with patch.object(settings, "admin_mfa_default_code", "none"):
+        assert verify_mfa_code("482910") is False
+
+    # Códigos inválidos o malformados
+    assert verify_mfa_code(None) is False
+    assert verify_mfa_code("") is False
+    assert verify_mfa_code("12345") is False
+    assert verify_mfa_code("1234567") is False
+    assert verify_mfa_code("abcdef") is False
+    assert verify_mfa_code("000000") is False
+
+
+def test_authenticate_user_admin_mfa_unit():
+    """RNF-S-1: Login de administrador exige código MFA antes de entregar token Bearer."""
+    from fastapi import HTTPException
+
+    from app.services.crud_service import authenticate_user
+
+    # Admin sin código MFA -> debe levantar HTTP 401
+    with pytest.raises(HTTPException) as exc_info:
+        authenticate_user(
+            None,
+            LoginRequest(correo="admin@alervi.test", password="Dev-2026-ALERVI"),
+        )
+    assert exc_info.value.status_code == 401
+    assert "MFA" in exc_info.value.detail
+
+    # Admin con código MFA inválido -> debe levantar HTTP 401
+    with pytest.raises(HTTPException) as exc_info:
+        authenticate_user(
+            None,
+            LoginRequest(
+                correo="admin@alervi.test",
+                password="Dev-2026-ALERVI",
+                codigo_mfa="111111",
+            ),
+        )
+    assert exc_info.value.status_code == 401
+    assert "inválido" in exc_info.value.detail.lower()
+
+    # Admin con código MFA válido -> debe entregar token Bearer
+    resp = authenticate_user(
+        None,
+        LoginRequest(
+            correo="admin@alervi.test",
+            password="Dev-2026-ALERVI",
+            codigo_mfa="482910",
+        ),
+    )
+    assert resp.access_token is not None
+    assert resp.usuario.rol == "administrador"

@@ -4,13 +4,13 @@ import argparse
 import json
 import math
 import sys
-
 from collections import Counter
 
 from cargar_conaset import conectar
 
 DECIMALES = 6
 MARGEN_METROS = 150
+
 
 def categoria_de(propiedades):
     """
@@ -22,6 +22,7 @@ def categoria_de(propiedades):
     if propiedades.get("highway") == "bus_stop":
         return "paradero"
     return None
+
 
 def leer_fila(feature):
     """
@@ -42,7 +43,10 @@ def leer_fila(feature):
     if geometry.get("type") != "Point":
         raise ValueError("Geometria distinta de 'Point'")
     lon, lat = geometry["coordinates"][:2]
-    if not all(isinstance(c, (int, float)) and not isinstance(c, bool) and math.isfinite(c) for c in (lon,lat)):
+    if not all(
+        isinstance(c, (int, float)) and not isinstance(c, bool) and math.isfinite(c)
+        for c in (lon, lat)
+    ):
         raise ValueError("Coordenadas invalidas")
 
     # Extraccion de categoria y nombre
@@ -52,12 +56,24 @@ def leer_fila(feature):
         raise ValueError("Sin etiqueta de colegio ni paradero")
     nombre = (propiedades.get("name") or "").strip() or None
 
-    return osm_id, osm_tipo, categoria, nombre, round(lon, DECIMALES), round(lat, DECIMALES)
+    return (
+        osm_id,
+        osm_tipo,
+        categoria,
+        nombre,
+        round(lon, DECIMALES),
+        round(lat, DECIMALES),
+    )
+
 
 def main():
-    ap = argparse.ArgumentParser(description="Carga de Colegios y paraderos de OSM (Formato GeoJSON)")
+    ap = argparse.ArgumentParser(
+        description="Carga de Colegios y paraderos de OSM (Formato GeoJSON)"
+    )
     ap.add_argument("archivo", help="ruta al GeoJSON")
-    ap.add_argument("--dry-run", action="store_true", help="valida y prueba sin guardar nada")
+    ap.add_argument(
+        "--dry-run", action="store_true", help="valida y prueba sin guardar nada"
+    )
     args = ap.parse_args()
 
     with open(args.archivo, encoding="utf-8") as f:
@@ -88,7 +104,7 @@ def main():
                 SELECT 1 FROM comuna WHERE ST_DWithin(geometry::geography, ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography, %s)
             )
             """,
-            (lon, lat, MARGEN_METROS)
+            (lon, lat, MARGEN_METROS),
         )
 
         if not cursor.fetchone()[0]:
@@ -104,7 +120,7 @@ def main():
                 nombre = EXCLUDED.nombre,
                 geometry = EXCLUDED.geometry
             """,
-            (osm_id, osm_tipo, categoria, nombre, lon, lat)
+            (osm_id, osm_tipo, categoria, nombre, lon, lat),
         )
         insertados[categoria] += 1
 
@@ -127,8 +143,13 @@ def main():
     print(f"Elementos guardados: {sum(insertados.values())}")
     for categoria, n in insertados.items():
         print(f"    {categoria} : {n}")
-    print("MODO PRUEBA: No se guardó nada en la BD" if args.dry_run else "Guardado en la base de datos")
-    print("")
+    print(
+        "MODO PRUEBA: No se guardó nada en la BD"
+        if args.dry_run
+        else "Guardado en la base de datos"
+    )
+    print()
+
 
 if __name__ == "__main__":
     sys.exit(main())

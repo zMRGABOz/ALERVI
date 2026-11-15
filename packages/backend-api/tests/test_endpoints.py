@@ -18,6 +18,8 @@ Verifica el cumplimiento de todos los endpoints y contratos:
 14. GET  /api/v1/auditoria
 """
 
+import uuid
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -76,40 +78,44 @@ def test_auth_login():
     assert data["usuario"]["rol"] == "inspector"
 
 
-def test_usuarios_crud():
+def test_usuarios_crud(admin_auth_headers: dict):
     """Verifica gestion de usuarios (GET, POST, PATCH /api/v1/usuarios)."""
     # Listar
-    res_list = client.get("/api/v1/usuarios")
+    res_list = client.get("/api/v1/usuarios", headers=admin_auth_headers)
     assert res_list.status_code == 200
     assert res_list.json()["total"] >= 1
 
     # Crear
+    unique_correo = f"nuevo_{uuid.uuid4().hex[:8]}@alervi.test"
     res_create = client.post(
         "/api/v1/usuarios",
         json={
-            "correo": "nuevo@alervi.test",
+            "correo": unique_correo,
             "clave": "PasswordSegura2026*",
             "rol": "inspector",
         },
+        headers=admin_auth_headers,
     )
     assert res_create.status_code == 201
-    assert res_create.json()["correo"] == "nuevo@alervi.test"
+    assert res_create.json()["correo"] == unique_correo
+    created_id = res_create.json()["id_usuario"]
 
     # Detalle
-    res_get = client.get("/api/v1/usuarios/2")
+    res_get = client.get(f"/api/v1/usuarios/{created_id}", headers=admin_auth_headers)
     assert res_get.status_code == 200
-    assert res_get.json()["id_usuario"] == 2
+    assert res_get.json()["id_usuario"] == created_id
 
-    # Modificar
+    # Modificar (modifica el usuario recién creado para no contaminar al inspector seed)
     res_patch = client.patch(
-        "/api/v1/usuarios/2",
+        f"/api/v1/usuarios/{created_id}",
         json={"activo": False},
+        headers=admin_auth_headers,
     )
     assert res_patch.status_code == 200
     assert not res_patch.json()["activo"]
 
 
-def test_cargas_batch():
+def test_cargas_batch(admin_auth_headers: dict):
     """Verifica ingesta batch de siniestros CONASET (POST /api/v1/cargas)."""
     payload = {
         "fuente": "CONASET_ARCGIS",
@@ -123,7 +129,7 @@ def test_cargas_batch():
             }
         ],
     }
-    response = client.post("/api/v1/cargas", json=payload)
+    response = client.post("/api/v1/cargas", json=payload, headers=admin_auth_headers)
     assert response.status_code == 201
     data = response.json()
     assert data["anio"] == 2024
@@ -154,6 +160,23 @@ def test_ranking():
     assert "puntos" in data
     assert len(data["puntos"]) > 0
 
+    # Consulta con anio específico
+    res_anio = client.get("/api/v1/ranking?anio=2024")
+    assert res_anio.status_code == 200
+    assert res_anio.json()["periodo"] == "2024"
+
+    # Validación: anio con intervalo contradictorio retorna 400
+    res_bad = client.get(
+        "/api/v1/ranking?anio=2024&periodo_inicio=2021&periodo_fin=2023"
+    )
+    assert res_bad.status_code == 400
+    assert "contradictorios" in res_bad.json()["detail"]
+
+    # Validación: periodo_inicio > periodo_fin retorna 400
+    res_range_bad = client.get("/api/v1/ranking?periodo_inicio=2025&periodo_fin=2020")
+    assert res_range_bad.status_code == 400
+    assert "mayor" in res_range_bad.json()["detail"]
+
 
 def test_detalle_punto_tecnico():
     """Verifica detalle tecnico de un punto critico (GET /api/v1/puntos/{id_punto})."""
@@ -165,7 +188,7 @@ def test_detalle_punto_tecnico():
     assert "desglose_scoring" in data
 
 
-def test_factores_y_ponderaciones():
+def test_factores_y_ponderaciones(admin_auth_headers: dict):
     """Verifica catalogo de factores y calibracion de ponderaciones."""
     # Listar factores
     res_list = client.get("/api/v1/factores")
@@ -176,13 +199,23 @@ def test_factores_y_ponderaciones():
     res_create = client.post(
         "/api/v1/factores",
         json={"nombre": "Nuevo factor de prueba", "descripcion": "Descripcion corta"},
+        headers=admin_auth_headers,
     )
     assert res_create.status_code == 201
+
+    # Crear factor usando alias /api/v1/factores-riesgo
+    res_create_alias = client.post(
+        "/api/v1/factores-riesgo",
+        json={"nombre": "Otro factor alias", "descripcion": "Descripcion alias"},
+        headers=admin_auth_headers,
+    )
+    assert res_create_alias.status_code == 201
 
     # Modificar factor
     res_patch = client.patch(
         "/api/v1/factores/1",
         json={"activo": False},
+        headers=admin_auth_headers,
     )
     assert res_patch.status_code == 200
 
@@ -200,12 +233,27 @@ def test_factores_y_ponderaciones():
             "w_tendencia": 0.20,
             "w_contexto": 0.20,
         },
+        headers=admin_auth_headers,
     )
     assert res_update_pond.status_code == 200
     assert res_update_pond.json()["w_severidad"] == 0.40
 
+    # Calibrar ponderaciones via alias /api/v1/ponderaciones
+    res_update_pond_alias = client.put(
+        "/api/v1/ponderaciones",
+        json={
+            "w_severidad": 0.35,
+            "w_frecuencia": 0.25,
+            "w_tendencia": 0.20,
+            "w_contexto": 0.20,
+        },
+        headers=admin_auth_headers,
+    )
+    assert res_update_pond_alias.status_code == 200
+    assert res_update_pond_alias.json()["w_severidad"] == 0.35
 
-def test_inspections_y_fotos():
+
+def test_inspections_y_fotos(auth_headers: dict):
     """Verifica registro, detalle, edicion y fotos de inspecciones."""
     # Crear ficha valida
     payload = {
@@ -214,7 +262,7 @@ def test_inspections_y_fotos():
         "notas": "Inspección técnica en terreno.",
         "factores_riesgo_ids": [1],
     }
-    res_create = client.post("/api/v1/inspections", json=payload)
+    res_create = client.post("/api/v1/inspections", json=payload, headers=auth_headers)
     assert res_create.status_code == 201
     id_ficha = res_create.json()["id_ficha"]
 
@@ -222,29 +270,40 @@ def test_inspections_y_fotos():
     res_invalid = client.post(
         "/api/v1/inspections",
         json={"id_punto": 101, "fecha_visita": "2026-11-02", "notas": "X" * 501},
+        headers=auth_headers,
     )
     assert res_invalid.status_code == 422
 
     # Detalle ficha
-    res_get = client.get(f"/api/v1/inspections/{id_ficha}")
+    res_get = client.get(f"/api/v1/inspections/{id_ficha}", headers=auth_headers)
     assert res_get.status_code == 200
 
     # Editar ficha (PATCH)
     res_patch = client.patch(
         f"/api/v1/inspections/{id_ficha}",
         json={"notas": "Notas actualizadas del inspector."},
+        headers=auth_headers,
     )
     assert res_patch.status_code == 200
 
     # Adjuntar foto (POST /inspections/{id}/fotos)
-    res_foto = client.post(f"/api/v1/inspections/{id_ficha}/fotos")
+    res_foto = client.post(
+        f"/api/v1/inspections/{id_ficha}/fotos", headers=auth_headers
+    )
     assert res_foto.status_code == 201
     assert "ruta" in res_foto.json()
 
     # Historial de fichas por punto (GET /puntos/{id}/fichas)
-    res_historial = client.get("/api/v1/puntos/101/fichas")
+    res_historial = client.get("/api/v1/puntos/101/fichas", headers=auth_headers)
     assert res_historial.status_code == 200
     assert isinstance(res_historial.json(), list)
+
+    # Historial de fichas por punto via alias /puntos/{id}/inspections
+    res_historial_alias = client.get(
+        "/api/v1/puntos/101/inspections", headers=auth_headers
+    )
+    assert res_historial_alias.status_code == 200
+    assert isinstance(res_historial_alias.json(), list)
 
 
 def test_alerts_evaluacion():
@@ -265,9 +324,9 @@ def test_alerts_evaluacion():
     assert data["telemetria_status"] == "EVALUADO_CON_ALERTA"
 
 
-def test_auditoria():
+def test_auditoria(admin_auth_headers: dict):
     """Verifica consulta de bitacora inmutable (GET /api/v1/auditoria)."""
-    response = client.get("/api/v1/auditoria")
+    response = client.get("/api/v1/auditoria", headers=admin_auth_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["total"] >= 1

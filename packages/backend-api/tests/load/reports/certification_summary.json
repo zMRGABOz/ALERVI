@@ -1,0 +1,39 @@
+{
+  "timestamp": "2026-11-14T05:37:44Z",
+  "host": "http://127.0.0.1:8000",
+  "total_requests": 1804,
+  "total_rps": 52.95527531485821,
+  "total_p95": 670.0,
+  "total_fails": 0,
+  "criteria": {
+    "throughput_ge_50": true,
+    "p95_le_800": true,
+    "zero_failures": true,
+    "endpoints_p95_le_800": true,
+    "srs_certified": true
+  },
+  "endpoints": [
+    {
+      "name": "/alerts [evaluacion PostGIS cinematica]",
+      "requests": 895,
+      "failures": 0,
+      "rps": 26.27215709911203,
+      "p50": 310.0,
+      "p90": 370.0,
+      "p95": 410.0,
+      "p99": 790.0,
+      "passed": true
+    },
+    {
+      "name": "/ranking [calculo on-the-fly >2000 puntos]",
+      "requests": 909,
+      "failures": 0,
+      "rps": 26.683118215746184,
+      "p50": 510.0,
+      "p90": 660.0,
+      "p95": 710.0,
+      "p99": 1100.0,
+      "passed": true
+    }
+  ]
+}
