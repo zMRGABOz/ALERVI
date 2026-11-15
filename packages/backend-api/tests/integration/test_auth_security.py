@@ -458,10 +458,6 @@ def test_tc19_historial_denegado_usuario_publico(client: TestClient):
 
 
 @pytest.mark.integration
-@pytest.mark.xfail(
-    strict=False,
-    reason="TC-32 / RNF-S-6: Bloqueo temporal tras 5 intentos fallidos aún no implementado",
-)
 def test_tc32_bloqueo_tras_cinco_intentos_fallidos(client: TestClient):
     """TC-32 / RNF-S-6: Cinco intentos fallidos consecutivos bloquean el sexto intento."""
     from app.services.crud_service import reset_login_attempts
