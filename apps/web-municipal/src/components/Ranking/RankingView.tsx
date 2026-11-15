@@ -1,7 +1,7 @@
 "use client";
 
 import { initialRankingQuery } from "../../config/ranking";
-import { pointDetailHref, publicMapHref, routes, safeRankingReturnTo } from "../../config/routes";
+import { inspectionHref, pointDetailHref, publicMapHref, routes, safeRankingReturnTo } from "../../config/routes";
 import { useRanking } from "../../hooks/useRanking";
 import { useRankingFilters } from "../../hooks/useRankingFilters";
 import { RankingFilters } from "../Filters/RankingFilters";
@@ -55,7 +55,7 @@ export function RankingView() {
               <div><h2 id="titulo-ranking">{offset ? "Resultados comunales" : `Top ${limit} comunal`}</h2><p>{query.data.puntos.length} puntos con índice recibidos · máximo solicitado: {limit}{offset ? ` · desplazamiento solicitado: ${offset}` : ""}</p></div>
               <span className="status-badge"><Icon name="ranking" size={14} /> Prioridad relativa</span>
             </div>
-            <RankingTable points={query.data.puntos} detailHref={detailHref} locationHref={(id) => publicMapHref(id, returnTo)} />
+            <RankingTable points={query.data.puntos} detailHref={detailHref} locationHref={(id) => publicMapHref(id, returnTo)} historyHref={(id) => inspectionHref(id, "historial", returnTo)} />
           </section>
           <UnscoredPoints points={query.data.puntos_sin_indice} detailHref={detailHref} />
         </>

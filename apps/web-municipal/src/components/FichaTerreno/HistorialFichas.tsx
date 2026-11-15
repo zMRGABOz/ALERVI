@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { getFichasPunto, updateFicha } from "../../services/inspections";
 import type { Session } from "../../types/session";
 import { obtenerFechaHoyLocal } from "./FormFicha";
@@ -59,10 +59,21 @@ export const HistorialFichas: React.FC<HistorialFichasProps> = ({
   refreshKey = 0,
   apiBaseUrl = "/api/v1",
 }) => {
+  const historyId = useId();
   const [fichas, setFichas] = useState<FichaInspeccion[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [fichaSeleccionadaId, setFichaSeleccionadaId] = useState<number | null>(null);
+  const selectionAnchor = useRef<{ button: HTMLButtonElement; top: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const anchor = selectionAnchor.current;
+    selectionAnchor.current = null;
+    if (!anchor?.button.isConnected) return;
+    // Al cerrar otra ficha, conserva la cabecera pulsada en su lugar visible.
+    const delta = anchor.button.getBoundingClientRect().top - anchor.top;
+    if (Math.abs(delta) > 1) window.scrollBy({ top: delta, behavior: "instant" });
+  }, [fichaSeleccionadaId]);
 
   // Estado de edición para ficha propia (RF-7)
   const [fichaEditandoId, setFichaEditandoId] = useState<number | null>(null);
@@ -77,14 +88,18 @@ export const HistorialFichas: React.FC<HistorialFichasProps> = ({
 
   useEffect(() => {
     let activo = true;
+    const controller = new AbortController();
 
     async function cargarHistorial() {
       setCargando(true);
       setError(null);
+      setFichaSeleccionadaId(null);
+      setFichaEditandoId(null);
+      setMensajeEdicion(null);
       try {
         let data: FichaInspeccion[];
         if (session) {
-          data = await getFichasPunto(idPunto, { session });
+          data = await getFichasPunto(idPunto, { session, signal: controller.signal });
         } else {
           const headers: Record<string, string> = {};
           if (authToken) {
@@ -93,6 +108,7 @@ export const HistorialFichas: React.FC<HistorialFichasProps> = ({
 
           const res = await fetch(`${apiBaseUrl}/puntos/${idPunto}/fichas`, {
             headers,
+            signal: controller.signal,
           });
           if (!res.ok) {
             throw new Error(`Error al obtener historial (código ${res.status})`);
@@ -102,12 +118,9 @@ export const HistorialFichas: React.FC<HistorialFichasProps> = ({
         if (activo) {
           const ordenadas = ordenarFichasCronologicamente(data);
           setFichas(ordenadas);
-          if (ordenadas.length > 0 && fichaSeleccionadaId === null) {
-            setFichaSeleccionadaId(ordenadas[0].id_ficha);
-          }
         }
       } catch (err: unknown) {
-        if (activo) {
+        if (activo && !controller.signal.aborted && !session?.signal.aborted) {
           const textoError =
             err instanceof Error
               ? err.message
@@ -123,8 +136,9 @@ export const HistorialFichas: React.FC<HistorialFichasProps> = ({
 
     return () => {
       activo = false;
+      controller.abort();
     };
-  }, [idPunto, session, authToken, refreshKey, apiBaseUrl, fichaSeleccionadaId]);
+  }, [idPunto, session, authToken, refreshKey, apiBaseUrl]);
 
   const iniciarEdicion = (ficha: FichaInspeccion) => {
     setMensajeEdicion(null);
@@ -254,14 +268,14 @@ export const HistorialFichas: React.FC<HistorialFichasProps> = ({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="inspection-history space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-bold text-gray-800">
             Historial de Fichas ({fichas.length})
           </h3>
           <p className="text-xs text-gray-500">
-            Seleccione una ficha para inspeccionar su detalle completo, antecedentes de conteos y fotografías.
+            Abre una ficha para consultar sus antecedentes y fotografías. Vuelve a pulsarla para ocultar el detalle.
           </p>
         </div>
       </div>
@@ -279,39 +293,42 @@ export const HistorialFichas: React.FC<HistorialFichasProps> = ({
         </div>
       )}
 
-      <div className="space-y-3">
+      <div className="inspection-history__list">
         {fichas.map((ficha) => {
           const estaSeleccionada = fichaSeleccionadaId === ficha.id_ficha;
           const estaEditando = fichaEditandoId === ficha.id_ficha;
           const esEditablePorUsuario = puedeEditarFicha(ficha, rolUsuario, idUsuarioActual);
           const catalogoFactores =
             factoresDisponibles.length > 0 ? factoresDisponibles : ficha.factores_riesgo || [];
+          const toggleId = `${historyId}-toggle-${ficha.id_ficha}`;
+          const detailId = `${historyId}-detail-${ficha.id_ficha}`;
 
           return (
             <div
               key={ficha.id_ficha}
               data-testid={`ficha-item-${ficha.id_ficha}`}
-              className={`rounded-lg border transition-all ${
-                estaSeleccionada
-                  ? "bg-white border-blue-500 shadow-md ring-1 ring-blue-500"
-                  : "bg-white border-gray-200 shadow-sm hover:border-gray-300"
-              }`}
+              className={`inspection-history-card${estaSeleccionada ? " inspection-history-card--open" : ""}`}
             >
               {/* Cabecera clickeable para seleccionar / expandir la ficha */}
               <button
                 type="button"
+                id={toggleId}
                 aria-expanded={estaSeleccionada}
-                onClick={() =>
-                  setFichaSeleccionadaId(estaSeleccionada ? null : ficha.id_ficha)
-                }
-                className="w-full p-4 text-left flex justify-between items-start gap-4 focus:outline-none"
+                aria-controls={detailId}
+                onClick={(event) => {
+                  if (fichaSeleccionadaId !== null && !estaSeleccionada) {
+                    selectionAnchor.current = { button: event.currentTarget, top: event.currentTarget.getBoundingClientRect().top };
+                  }
+                  setFichaSeleccionadaId(estaSeleccionada ? null : ficha.id_ficha);
+                }}
+                className="inspection-history-card__toggle"
               >
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-bold px-2 py-0.5 bg-blue-100 text-blue-800 rounded">
+                <span className="inspection-history-card__summary">
+                  <span className="inspection-history-card__heading">
+                    <span className="inspection-history-card__number">
                       Ficha #{ficha.id_ficha}
                     </span>
-                    <span className="text-xs text-gray-600 font-medium">
+                    <span className="inspection-history-card__date">
                       Visita: {ficha.fecha_visita}
                     </span>
                     {esEditablePorUsuario && (
@@ -319,27 +336,24 @@ export const HistorialFichas: React.FC<HistorialFichasProps> = ({
                         Autoría propia
                       </span>
                     )}
-                  </div>
-                  {!estaSeleccionada && ficha.notas && (
-                    <p className="mt-1.5 text-xs text-gray-600 line-clamp-1">
-                      {ficha.notas}
-                    </p>
-                  )}
-                </div>
+                  </span>
+                  <span className="inspection-history-card__preview">{ficha.notas || "Sin observaciones descriptivas adicionales."}</span>
+                </span>
 
-                <div className="text-right shrink-0">
-                  <span className="block text-xs text-gray-500">
+                <span className="inspection-history-card__meta">
+                  <span className="inspection-history-card__inspector">
                     Inspector: {ficha.correo_inspector || `ID ${ficha.id_inspector}`}
                   </span>
-                  <span className="text-[11px] text-blue-600 font-medium">
+                  <span className="inspection-history-card__action">
                     {estaSeleccionada ? "Ocultar detalle" : "Ver detalle"}
+                    <span className="inspection-history-card__chevron" aria-hidden="true" />
                   </span>
-                </div>
+                </span>
               </button>
 
               {/* Panel de Detalle Desplegado al seleccionar la ficha */}
               {estaSeleccionada && (
-                <div className="px-4 pb-4 pt-2 border-t border-gray-100 space-y-3">
+                <div id={detailId} role="region" aria-labelledby={toggleId} className="inspection-history-card__detail space-y-3">
                   {ficha.fecha_registro && (
                     <p className="text-[11px] text-gray-400">
                       Fecha de registro en sistema: {ficha.fecha_registro}

@@ -1,10 +1,10 @@
 "use client";
 
 import { useId } from "react";
-import Link from "next/link";
 import type { RankedPoint } from "../../services/ranking";
 import { QueryState } from "../UI/QueryState";
 import { RiskBadge } from "../UI/RiskBadge";
+import { RankingPointActions } from "./RankingPointActions";
 
 const indexFormatter = new Intl.NumberFormat("es-CL", { maximumFractionDigits: 3 });
 const countFormatter = new Intl.NumberFormat("es-CL");
@@ -13,9 +13,10 @@ type RankingTableProps = {
   points: readonly RankedPoint[];
   detailHref: (id: number) => string;
   locationHref: (id: number) => string;
+  historyHref: (id: number) => string;
 };
 
-export function RankingTable({ points, detailHref, locationHref }: RankingTableProps) {
+export function RankingTable({ points, detailHref, locationHref, historyHref }: RankingTableProps) {
   const helpId = useId();
 
   if (!points.length) {
@@ -24,7 +25,7 @@ export function RankingTable({ points, detailHref, locationHref }: RankingTableP
 
   return (
     <>
-      <p id={helpId} className="ranking-table-help">Consulta cada punto con «Ver detalle» o «Ver ubicación». En pantallas pequeñas, desplaza la tabla horizontalmente para ver todas las columnas.</p>
+      <p id={helpId} className="ranking-table-help">Abre «Acciones» para consultar el detalle, la ubicación o el historial de fichas de cada punto. En pantallas pequeñas, desplaza la tabla horizontalmente para ver todas las columnas.</p>
       <div className="ranking-table-scroll" role="region" aria-label="Tabla de prioridades" aria-describedby={helpId} tabIndex={0}>
         <table className="ranking-table">
           <caption className="sr-only">Posiciones, índices y orden entregados por el servicio, sin recalcular empates.</caption>
@@ -37,8 +38,7 @@ export function RankingTable({ points, detailHref, locationHref }: RankingTableP
               <th scope="col" className="ranking-number">Siniestros</th>
               <th scope="col" className="ranking-number">Fallecidos</th>
               <th scope="col" className="ranking-number">Graves</th>
-              <th scope="col" className="ranking-detail-action">Detalle</th>
-              <th scope="col" className="ranking-detail-action">Ubicación</th>
+              <th scope="col" className="ranking-detail-action">Acciones</th>
             </tr>
           </thead>
           <tbody>
@@ -52,10 +52,7 @@ export function RankingTable({ points, detailHref, locationHref }: RankingTableP
                 <td className="ranking-number">{countFormatter.format(point.total_fallecidos)}</td>
                 <td className="ranking-number">{countFormatter.format(point.total_graves)}</td>
                 <td className="ranking-detail-action">
-                  <Link href={detailHref(point.id_punto)} className="point-detail-action" aria-label={`Ver detalle técnico de ${point.nombre_interseccion}`}>Ver detalle <span aria-hidden="true">→</span></Link>
-                </td>
-                <td className="ranking-detail-action">
-                  <Link href={locationHref(point.id_punto)} className="point-detail-action" aria-label={`Ver ubicación de ${point.nombre_interseccion} en el mapa público`}>Ver ubicación <span aria-hidden="true">→</span></Link>
+                  <RankingPointActions pointName={point.nombre_interseccion} detailHref={detailHref(point.id_punto)} locationHref={locationHref(point.id_punto)} historyHref={historyHref(point.id_punto)} />
                 </td>
               </tr>
             ))}

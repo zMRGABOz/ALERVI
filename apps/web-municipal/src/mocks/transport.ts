@@ -2,6 +2,7 @@ import { canUseDemoSession } from "../config/demo-session";
 import type { components } from "../types/api.generated";
 import { isSessionRole, type Session } from "../types/session";
 import type { ApiTransport } from "../services/transport";
+import { demoInspectionFactors, demoInspectionPoints } from "./inspection-fixtures";
 import {
   DEMO_DATA,
   demoDetails,
@@ -293,18 +294,23 @@ export function createMockTransport({
       const isDetail = detailMatch !== null && method === "GET";
       const isWeights = path === "/api/v1/factores/ponderaciones" &&
         (method === "GET" || method === "PUT");
+      const isFactors = path === "/api/v1/factores" && method === "GET";
       const fichasMatch = /^\/api\/v1\/puntos\/(\d+)\/fichas$/.exec(path);
       const isFichas = fichasMatch !== null && method === "GET";
       const isInspectionsPost = path === "/api/v1/inspections" && method === "POST";
       const isInspectionPatch = /^\/api\/v1\/inspections\/(\d+)$/.test(path) && method === "PATCH";
       const isFotosPost = /^\/api\/v1\/inspections\/(\d+)\/fotos$/.test(path) && method === "POST";
 
-      if (!isRanking && !isDetail && !isWeights && !isFichas && !isInspectionsPost && !isInspectionPatch && !isFotosPost) {
+      if (!isRanking && !isDetail && !isWeights && !isFactors && !isFichas && !isInspectionsPost && !isInspectionPatch && !isFotosPost) {
         throw new MockHttpError(
           404, "RUTA_NO_DISPONIBLE", "Esta operación no está disponible en la demostración.",
         );
       }
       const user = authenticate(session);
+
+      if (isFactors) {
+        return Response.json(scenario === "empty" ? [] : demoInspectionFactors.filter((factor) => url.searchParams.get("solo_activos") !== "true" || factor.activo));
+      }
 
       if (isFichas && fichasMatch) {
         const idPunto = Number(fichasMatch[1]);
@@ -322,11 +328,16 @@ export function createMockTransport({
           notas?: string;
           factores_riesgo_ids?: number[];
         } | undefined;
+        const point = demoDetails.find((item) => item.id_punto === body?.id_punto);
+        const legacyPoint = demoInspectionPoints.find((item) => item.id === body?.id_punto);
+        if (!body?.id_punto || (!point && !legacyPoint)) {
+          throw new MockHttpError(404, "PUNTO_NO_ENCONTRADO", "Selecciona un punto disponible en la demostración.");
+        }
         const nuevoId = nextFichaId++;
         const nuevaFicha = {
           id_ficha: nuevoId,
-          id_punto: body?.id_punto ?? 1,
-          nombre_interseccion: `Punto Crítico #${body?.id_punto ?? 1}`,
+          id_punto: body.id_punto,
+          nombre_interseccion: point?.nombre_interseccion ?? legacyPoint?.name ?? `Punto #${body.id_punto}`,
           id_inspector: user.id_usuario,
           correo_inspector: user.correo,
           fecha_visita: body?.fecha_visita ?? new Date().toISOString().split("T")[0],
@@ -334,7 +345,7 @@ export function createMockTransport({
           notas: body?.notas ?? "",
           factores_riesgo: (body?.factores_riesgo_ids ?? []).map((id) => ({
             id_factor: id,
-            nombre: `Factor #${id}`,
+            nombre: demoInspectionFactors.find((factor) => factor.id_factor === id)?.nombre ?? `Factor #${id}`,
             activo: true,
           })),
           fotografias: [] as Array<{
@@ -430,7 +441,7 @@ export function createMockTransport({
             404, "PUNTO_NO_ENCONTRADO", "El punto no está disponible en la demostración.",
           );
         }
-        return Response.json(point);
+        return Response.json({ ...point, total_fichas_inspeccion: fichasStore.filter((ficha) => ficha.id_punto === id).length });
       }
 
       if (method === "PUT") {

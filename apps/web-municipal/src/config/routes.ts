@@ -41,11 +41,13 @@ export function publicMapHref(id: number, returnTo: string): string {
 }
 
 function safePointReturnTo(value: string | undefined): string {
-  if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\\")) return routes.ranking;
+  if (!value || value !== value.trim() || !value.startsWith("/") || value.startsWith("//") || value.includes("\\") || /[\u0000-\u001f\u007f]/.test(value)) return routes.ranking;
   try {
+    decodeURIComponent(value);
     const url = new URL(value, "https://alervi.local");
-    if (url.origin !== "https://alervi.local" || (url.pathname !== routes.ranking && url.pathname !== routes.summary)) return routes.ranking;
-    return `${url.pathname}${url.search}${url.hash}`;
+    if (url.origin !== "https://alervi.local") return routes.ranking;
+    if (url.pathname === routes.ranking) return safeRankingReturnTo(value);
+    return url.pathname === routes.summary ? routes.summary : routes.ranking;
   } catch {
     return routes.ranking;
   }
@@ -68,5 +70,57 @@ export function parsePointNavigationContext(search: Record<string, string | stri
     returnTo: safePointReturnTo(typeof search.volver === "string" ? search.volver : undefined),
     rankingPeriod: text("periodo_origen"),
     rankingVersion: text("version_origen"),
+  };
+}
+
+export type InspectionView = "nueva" | "historial";
+export type InspectionNavigationContext = {
+  id: number | null;
+  view: InspectionView;
+  returnTo: string;
+  hasOrigin: boolean;
+  invalid: boolean;
+};
+
+function safeInspectionReturnTo(value: string | undefined): string {
+  if (!value || value !== value.trim() || !value.startsWith("/") || value.startsWith("//") || value.includes("\\") || /[\u0000-\u001f\u007f]/.test(value)) return routes.ranking;
+  try {
+    decodeURIComponent(value);
+    const url = new URL(value, "https://alervi.local");
+    if (url.origin !== "https://alervi.local") return routes.ranking;
+    const pointPath = /^\/puntos\/([1-9]\d*)$/.exec(url.pathname);
+    const id = pointPath ? parsePointId(pointPath[1]) : null;
+    if (id !== null) {
+      const context = parsePointNavigationContext({
+        volver: url.searchParams.getAll("volver").length === 1 ? url.searchParams.get("volver") ?? undefined : undefined,
+        periodo_origen: url.searchParams.getAll("periodo_origen").length === 1 ? url.searchParams.get("periodo_origen") ?? undefined : undefined,
+        version_origen: url.searchParams.getAll("version_origen").length === 1 ? url.searchParams.get("version_origen") ?? undefined : undefined,
+      });
+      return pointDetailHref(id, context);
+    }
+    return safePointReturnTo(value);
+  } catch {
+    return routes.ranking;
+  }
+}
+
+export function inspectionHref(id: number | null, view: InspectionView, returnTo?: string): string {
+  if (id !== null && (!Number.isSafeInteger(id) || id < 1)) throw new RangeError("El identificador del punto debe ser un entero positivo.");
+  const search = new URLSearchParams();
+  if (id !== null) search.set("punto", String(id));
+  search.set("vista", view);
+  if (returnTo) search.set("volver", safeInspectionReturnTo(returnTo));
+  return `${routes.terreno}?${search}`;
+}
+
+export function parseInspectionNavigationContext(search: Record<string, string | string[] | undefined>): InspectionNavigationContext {
+  const id = typeof search.punto === "string" ? parsePointId(search.punto) : null;
+  const validView = search.vista === undefined || search.vista === "nueva" || search.vista === "historial";
+  return {
+    id,
+    view: search.vista === "nueva" ? "nueva" : "historial",
+    returnTo: safeInspectionReturnTo(typeof search.volver === "string" ? search.volver : undefined),
+    hasOrigin: typeof search.volver === "string",
+    invalid: (search.punto !== undefined && id === null) || !validView,
   };
 }

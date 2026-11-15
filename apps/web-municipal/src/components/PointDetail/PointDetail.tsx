@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { routes, type PointNavigationContext } from "../../config/routes";
+import { inspectionHref, pointDetailHref, routes, type PointNavigationContext } from "../../config/routes";
 import { usePointDetail } from "../../hooks/usePointDetail";
 import { useSession } from "../../hooks/useSession";
 import { QueryState } from "../UI/QueryState";
@@ -76,6 +76,13 @@ export function PointDetail({ id, context }: { id: number | null; context: Point
               <div><dt>Fichas de este punto</dt><dd>{formatDetailValue(query.data.total_fichas_inspeccion)}</dd></div>
               <div><dt>Coordenadas informadas (latitud, longitud)</dt><dd>{query.data.latitud !== null && query.data.longitud !== null ? `${query.data.latitud}, ${query.data.longitud}` : "No informadas"}</dd></div>
             </dl>
+          </section>
+          <section className="surface-card point-inspection-entry" aria-labelledby="titulo-fichas-punto">
+            <div>
+              <h2 id="titulo-fichas-punto">Fichas de terreno</h2>
+              <p>Consulta el historial y gestiona las inspecciones de este punto en el módulo de terreno.</p>
+            </div>
+            <Link href={inspectionHref(query.data.id_punto, "historial", pointDetailHref(query.data.id_punto, context))} className="button-secondary">Abrir fichas de terreno</Link>
           </section>
           <section className="detail-notice" aria-labelledby="titulo-ambito-detalle">
             <h2 id="titulo-ambito-detalle">Período del detalle no confirmado</h2>
