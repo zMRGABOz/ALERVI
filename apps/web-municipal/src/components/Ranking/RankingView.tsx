@@ -36,7 +36,7 @@ export function RankingView() {
           <h1>Ranking de prioridades</h1>
           <p className="summary-heading__description">Prioridades comunales en el orden y con las posiciones entregadas por el servicio.</p>
         </div>
-        {!accessError && <button type="button" className="button-secondary" onClick={query.refetch} disabled={!filters.query || query.status === "loading"}>Actualizar ranking</button>}
+        {!accessError && <button type="button" className="button-secondary" onClick={query.refetch} disabled={!filters.query || query.status === "loading" || query.refreshing}>{query.refreshing ? "Actualizando ranking…" : "Actualizar ranking"}</button>}
       </div>
       <RankingFilters key={filters.formKey} initialFields={filters.fields} urlErrors={filters.errors} onApply={filters.apply} onReset={filters.reset} />
       {!filters.query ? (

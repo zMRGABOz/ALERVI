@@ -1,59 +1,33 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { getInspectionPoint, loadInspectionCatalog, type InspectionPoint } from "../integrations/inspection-module";
+import { useCallback } from "react";
+import { getInspectionPoint, loadInspectionCatalog } from "../integrations/inspection-module";
 import { ApiError } from "../services/api";
-import type { Session } from "../types/session";
+import { getCachedQuery, invalidateQueryGroup, queryKey } from "../services/query-cache";
+import { useCachedQuery } from "./useCachedQuery";
 import { useSession } from "./useSession";
 
-type State<T> = { status: "loading"; data: null; error: null }
-  | { status: "success"; data: T; error: null }
-  | { status: "error"; data: null; error: ApiError };
-type Catalog = Awaited<ReturnType<typeof loadInspectionCatalog>>;
-type Snapshot<T> = { session: Session; attempt: number; state: State<T> };
-const LOADING = { status: "loading", data: null, error: null } as const;
-const NO_POINT = { status: "idle", data: null, error: null } as const;
+const NO_SESSION = new ApiError("Se requiere una sesión municipal válida.", { status: 401, code: "SESION_REQUERIDA" });
 
 export function useInspectionContext(id: number | null) {
   const { session } = useSession();
-  const [catalogAttempt, setCatalogAttempt] = useState(0);
-  const [attempt, setAttempt] = useState(0);
-  const [catalogSnapshot, setCatalogSnapshot] = useState<Snapshot<Catalog> | null>(null);
-  const [snapshot, setSnapshot] = useState<(Snapshot<InspectionPoint> & { id: number }) | null>(null);
-  const refetch = useCallback(() => setAttempt((value) => value + 1), []);
-  const refetchCatalog = useCallback(() => setCatalogAttempt((value) => value + 1), []);
-
-  useEffect(() => {
+  const loadCatalog = useCallback(() => session ? loadInspectionCatalog({ session }) : Promise.reject(NO_SESSION), [session]);
+  const loadPoint = useCallback(() => session && id !== null ? getInspectionPoint(id, { session }) : Promise.reject(NO_SESSION), [id, session]);
+  const catalog = useCachedQuery(session ? queryKey("inspection-catalog") : null, loadCatalog, session ?? undefined);
+  const point = useCachedQuery(id !== null && session ? queryKey("inspection-context", { id }) : null, loadPoint, session ?? undefined);
+  const refreshPoint = point.refetch;
+  const refreshCatalog = catalog.refetch;
+  const refetch = useCallback(() => {
+    if (!session || id === null) return;
+    getCachedQuery(queryKey("point-detail", { id }), session).invalidate();
+    getCachedQuery(queryKey("inspection-history", { id }), session).invalidate();
+    refreshPoint();
+  }, [id, session, refreshPoint]);
+  const refetchCatalog = useCallback(() => {
     if (!session) return;
-    const controller = new AbortController();
-    let active = true;
-    loadInspectionCatalog({ session, signal: controller.signal }).then((data) => {
-      if (active) setCatalogSnapshot({ session, attempt: catalogAttempt, state: { status: "success", data, error: null } });
-    }).catch((reason: unknown) => {
-      if (!active || controller.signal.aborted || session.signal.aborted) return;
-      const error = reason instanceof ApiError ? reason : new ApiError("No se pudieron consultar los puntos y factores de terreno.", { status: 0, code: "ERROR_CATALOGO_TERRENO" });
-      setCatalogSnapshot({ session, attempt: catalogAttempt, state: { status: "error", data: null, error } });
-      controller.abort();
-    });
-    return () => { active = false; controller.abort(); };
-  }, [session, catalogAttempt]);
-
-  useEffect(() => {
-    if (id === null || !session) return;
-    const controller = new AbortController();
-    let active = true;
-    getInspectionPoint(id, { session, signal: controller.signal }).then((data) => {
-      if (active) setSnapshot({ id, session, attempt, state: { status: "success", data, error: null } });
-    }).catch((reason: unknown) => {
-      if (!active || controller.signal.aborted || session.signal.aborted) return;
-      const error = reason instanceof ApiError ? reason : new ApiError("No se pudo preparar el contexto de terreno.", { status: 0, code: "ERROR_TERRENO" });
-      setSnapshot({ id, session, attempt, state: { status: "error", data: null, error } });
-      controller.abort();
-    });
-    return () => { active = false; controller.abort(); };
-  }, [id, session, attempt]);
-
-  const catalog = catalogSnapshot?.session === session && catalogSnapshot.attempt === catalogAttempt ? catalogSnapshot.state : LOADING;
-  const point = id === null ? NO_POINT : snapshot?.id === id && snapshot.session === session && snapshot.attempt === attempt ? snapshot.state : LOADING;
-  return { catalog, point, refetch, refetchCatalog };
+    invalidateQueryGroup("risk-points");
+    invalidateQueryGroup("inspection-factors", session);
+    refreshCatalog();
+  }, [session, refreshCatalog]);
+  return { catalog, point: id === null ? { ...point, status: "idle" as const, data: null, error: null } : point, refetch, refetchCatalog };
 }

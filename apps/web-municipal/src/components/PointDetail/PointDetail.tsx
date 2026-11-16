@@ -55,7 +55,7 @@ export function PointDetail({ id, context }: { id: number | null; context: Point
           <h1>{detail?.nombre_interseccion ?? "Detalle técnico del punto"}</h1>
           <p className="summary-heading__description">Explicación del índice y antecedentes entregados por el servicio para este punto.</p>
         </div>
-        {!accessError && id !== null && <button type="button" className="button-secondary" onClick={query.refetch} disabled={query.status === "loading"}>Actualizar detalle</button>}
+        {!accessError && id !== null && <button type="button" className="button-secondary" onClick={query.refetch} disabled={query.status === "loading" || query.refreshing}>{query.refreshing ? "Actualizando detalle…" : "Actualizar detalle"}</button>}
       </div>
       {query.status !== "success" ? (
         <div className="surface-card ranking-state-panel"><DetailState query={query} /></div>

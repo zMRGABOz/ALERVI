@@ -17,11 +17,12 @@ const dateFormatter = new Intl.DateTimeFormat("es-CL", {
 
 type TopPointsPanelProps = {
   query: ReturnType<typeof useRanking>;
+  inspectionCounts: ReadonlyMap<number, number> | null;
   selectedId: number | null;
   onSelect: (id: number) => void;
 };
 
-export function TopPointsPanel({ query, selectedId, onSelect }: TopPointsPanelProps) {
+export function TopPointsPanel({ query, inspectionCounts, selectedId, onSelect }: TopPointsPanelProps) {
   const listRef = useRef<HTMLUListElement>(null);
 
   useEffect(() => {
@@ -59,13 +60,13 @@ export function TopPointsPanel({ query, selectedId, onSelect }: TopPointsPanelPr
                     type="button"
                     className="top-point-button"
                     aria-pressed={point.id_punto === selectedId}
-                    aria-label={`Ubicar ${point.nombre_interseccion} en el mapa. Posición ${point.posicion_ranking}. IP ${indexFormatter.format(point.indice_prioridad)}. Nivel ${riskLevels[point.nivel_riesgo].label}.`}
+                    aria-label={`Ubicar ${point.nombre_interseccion} en el mapa. Posición ${point.posicion_ranking}. IP ${indexFormatter.format(point.indice_prioridad)}. Nivel ${riskLevels[point.nivel_riesgo].label}. Fichas: ${inspectionCounts ? inspectionCounts.get(point.id_punto) ?? 0 : "no disponible"}.`}
                     onClick={() => onSelect(point.id_punto)}
                   >
                     <span className="top-point-position">{point.posicion_ranking}</span>
                     <span className="top-point-content">
                       <span className="top-point-name">{point.nombre_interseccion}</span>
-                      <span className="top-point-context"><RiskBadge level={point.nivel_riesgo} /><span>{point.total_siniestros} siniestros</span></span>
+                      <span className="top-point-context"><RiskBadge level={point.nivel_riesgo} /><span>{point.total_siniestros} siniestros</span><span>Fichas: {inspectionCounts ? inspectionCounts.get(point.id_punto) ?? 0 : "No disponible"}</span></span>
                     </span>
                     <span className="top-point-index">{indexFormatter.format(point.indice_prioridad)}<span>/ 100</span></span>
                   </button>

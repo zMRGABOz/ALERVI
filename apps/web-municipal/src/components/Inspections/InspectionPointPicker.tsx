@@ -138,13 +138,17 @@ export function InspectionPointPicker({ choices, selectedId, disabled, loading, 
               onClick={() => select(point)}
             >
               <span className="inspection-point-search__name">{point.name}</span>
-              <span className="inspection-point-search__identity">Punto #{point.id}{point.id === selectedId && <span>En uso</span>}</span>
+              <span className="inspection-point-search__identity">
+                Punto #{point.id}
+                <span className="inspection-point-search__count">{point.count == null ? "Cantidad no disponible" : `${point.count} ${point.count === 1 ? "ficha" : "fichas"}`}</span>
+                {point.id === selectedId && <span>En uso</span>}
+              </span>
             </li>)}
           </ul>
           {!matches.length && <p className="inspection-point-search__empty">Prueba con otra calle, parte del nombre o el identificador del punto.</p>}
         </div>}
       </div>
-      <p id={hintId} className="inspection-point-search__hint">Puedes buscar sin tildes y combinar nombres de calles.<span className="sr-only"> Usa las flechas para recorrer los resultados, Enter para elegir y Escape para cerrar.</span></p>
+      <p id={hintId} className="inspection-point-search__hint">Primero aparecen los puntos con más fichas. Puedes buscar sin tildes y combinar nombres de calles.<span className="sr-only"> Usa las flechas para recorrer los resultados, Enter para elegir y Escape para cerrar.</span></p>
     </div>
   );
 }

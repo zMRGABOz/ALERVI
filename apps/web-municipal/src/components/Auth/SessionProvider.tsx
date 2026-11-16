@@ -14,6 +14,7 @@ import { demoUsers } from "../../mocks/fixtures";
 import { ApiError, type RequestOptions } from "../../services/api";
 import { login, type LoginRequest } from "../../services/auth";
 import { subscribeSessionInvalidation } from "../../services/session-invalidation";
+import { registerQuerySession } from "../../services/query-cache";
 import { DEMO_TOKEN_PREFIX } from "../../services/transport";
 import {
   isSessionRole,
@@ -153,6 +154,7 @@ function createSessionStore() {
       revision,
       signal: controller.signal,
     } : null;
+    if (session) registerQuerySession(session);
 
     snapshot = {
       configuration,

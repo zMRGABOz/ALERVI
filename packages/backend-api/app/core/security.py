@@ -16,6 +16,9 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.core.config import settings
+from app.core.database import get_db
+from app.core.persistence import persistent
+from app.models.db_models import Usuario
 
 logger = logging.getLogger("alervi.security")
 
@@ -105,7 +108,7 @@ def verify_mfa_code(code: Optional[str], secret: Optional[str] = None) -> bool:
 
     # 1. Código canónico oficial de desarrollo y pruebas (solo activo si está configurado y no deshabilitado)
     canonical = (getattr(settings, "admin_mfa_default_code", "") or "").strip()
-    if canonical and canonical.lower() not in ("none", "disabled", "false", "0"):
+    if settings.backend_debug and canonical and canonical.lower() not in ("none", "disabled", "false", "0"):
         if hmac.compare_digest(c, canonical):
             return True
 
@@ -116,6 +119,8 @@ def verify_mfa_code(code: Optional[str], secret: Optional[str] = None) -> bool:
         totp_secret = secret or getattr(
             settings, "admin_totp_secret", "JBSWY3DPEHPK3PXP"
         )
+        if not totp_secret:
+            return False
         key = base64.b32decode(totp_secret, casefold=True)
         now = int(time.time())
         for step_offset in (-1, 0, 1):
@@ -184,6 +189,9 @@ def decode_access_token(token: str) -> Dict[str, Any]:
         raise ValueError("Estructura de token JWT inválida")
 
     header_b64, payload_b64, sig_b64 = parts
+    header = json.loads(_b64url_decode(header_b64).decode("utf-8"))
+    if not isinstance(header, dict) or header.get("alg") != "HS256" or header.get("typ") != "JWT":
+        raise ValueError("Cabecera JWT inválida")
     signing_input = f"{header_b64}.{payload_b64}".encode("utf-8")
     expected_sig = hmac.new(
         settings.backend_secret_key.encode("utf-8"),
@@ -200,14 +208,23 @@ def decode_access_token(token: str) -> Dict[str, Any]:
     except Exception as exc:
         raise ValueError(f"Payload no decodificable: {exc}")
 
-    if "exp" in payload and int(payload["exp"]) < int(time.time()):
+    if not isinstance(payload, dict) or type(payload.get("exp")) is not int:
+        raise ValueError("Vencimiento JWT ausente o inválido")
+    if payload["exp"] <= int(time.time()):
         raise ValueError("Token expirado")
+
+    uid = payload.get("id_usuario")
+    if type(uid) is not int or uid <= 0 or payload.get("sub") != str(uid):
+        raise ValueError("Identidad JWT inválida")
+    if payload.get("rol") not in ("inspector", "administrador"):
+        raise ValueError("Rol JWT inválido")
 
     return payload
 
 
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+    db=Depends(get_db),
 ) -> Dict[str, Any]:
     """Dependencia de FastAPI para requerir autenticación Bearer JWT (TC-31)."""
     if not credentials or not credentials.credentials:
@@ -219,7 +236,6 @@ async def get_current_user(
 
     try:
         user_data = decode_access_token(credentials.credentials)
-        return user_data
     except Exception as exc:
         logger.warning("Intento de acceso con token inválido: %s", exc)
         raise HTTPException(
@@ -227,6 +243,16 @@ async def get_current_user(
             detail="Token de autenticación inválido o expirado",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    return _active_user(db, user_data)
+
+
+@persistent
+def _active_user(db, claims: Dict[str, Any]) -> Dict[str, Any]:
+    user = db.query(Usuario).filter(Usuario.id_usuario == claims["id_usuario"]).first()
+    if not user or not user.activo or user.correo != claims.get("correo"):
+        raise HTTPException(401, "La cuenta de la sesión ya no está disponible.", headers={"WWW-Authenticate": "Bearer"})
+    return {**claims, "rol": user.rol}
 
 
 async def require_admin(
@@ -238,4 +264,12 @@ async def require_admin(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Permisos insuficientes: se requiere rol de administrador municipal",
         )
+    return current_user
+
+
+async def require_inspector(
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    if current_user.get("rol") != "inspector":
+        raise HTTPException(403, "El registro de fichas está reservado al rol Inspector.")
     return current_user

@@ -2,14 +2,16 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { inspectionHref, routes, type InspectionNavigationContext, type InspectionView } from "../../config/routes";
 import { useInspectionContext } from "../../hooks/useInspectionContext";
+import { useInspectionSummary } from "../../hooks/useInspectionSummary";
 import { useSession } from "../../hooks/useSession";
-import { FormFicha, HistorialFichas } from "../../integrations/inspection-module";
+import { FormFicha, HistorialFichas, type InspectionChoice } from "../../integrations/inspection-module";
 import type { ApiError } from "../../services/api";
 import { QueryState } from "../UI/QueryState";
 import { InspectionPointPicker } from "./InspectionPointPicker";
+import { InspectionHistoryPoints, type InspectionHistoryPoint } from "./InspectionHistoryPoints";
 
 function InspectionError({ error, onRetry }: { error: ApiError; onRetry: () => void }) {
   return <div className="surface-card ranking-state-panel"><QueryState
@@ -25,14 +27,28 @@ export function InspectionWorkspace({ context }: { context: InspectionNavigation
   const { session, rol } = useSession();
   const selectedId = context.invalid ? null : context.id;
   const query = useInspectionContext(selectedId);
+  const inspections = useInspectionSummary();
   const activePointId = useRef(selectedId);
   const point = query.point.data;
   const [savedFicha, setSavedFicha] = useState<{ pointId: number; id: number } | null>(null);
+  const [historyRefresh, setHistoryRefresh] = useState(0);
   const esInspector = rol === "inspector";
   const form = context.view === "nueva" && esInspector;
-  const choices = query.catalog.data?.choices ?? [];
+  const choices = useMemo(() => {
+    const counts = inspections.data ? new Map(inspections.data.puntos.map((item) => [item.id_punto, item.total_fichas_inspeccion])) : null;
+    return (query.catalog.data?.choices ?? []).map((item) => ({ ...item, count: counts ? counts.get(item.id) ?? 0 : null }))
+      .sort((left, right) => (right.count ?? -1) - (left.count ?? -1) || left.id - right.id);
+  }, [query.catalog.data, inspections.data]);
+  const historyPoints = useMemo<InspectionHistoryPoint[]>(() => {
+    const names = new Map(choices.map((item) => [item.id, item.name]));
+    return (inspections.data?.puntos ?? []).map((item) => ({
+      id: item.id_punto,
+      name: names.get(item.id_punto) ?? `Punto #${item.id_punto} · Nombre no informado`,
+      count: item.total_fichas_inspeccion,
+    }));
+  }, [choices, inspections.data]);
   const options = selectedId !== null && !choices.some((item) => item.id === selectedId)
-    ? [{ id: selectedId, name: point?.name ?? "Nombre pendiente de consulta" }, ...choices]
+    ? [{ id: selectedId, name: point?.name ?? "Nombre pendiente de consulta", count: point?.count ?? null }, ...choices]
     : choices;
   const selectedChoice = options.find((item) => item.id === selectedId);
   const origin = context.hasOrigin ? context.returnTo : undefined;
@@ -47,6 +63,19 @@ export function InspectionWorkspace({ context }: { context: InspectionNavigation
   function show(view: InspectionView) {
     setSavedFicha(null);
     router.replace(inspectionHref(selectedId, view, origin), { scroll: false });
+  }
+
+  function selectPoint(selected: InspectionChoice, view = context.view) {
+    if (selected.id === selectedId && view === context.view) return;
+    activePointId.current = selected.id;
+    setSavedFicha(null);
+    router.replace(inspectionHref(selected.id, view, origin), { scroll: false });
+  }
+
+  function refreshInspections() {
+    inspections.refetch();
+    if (selectedId !== null) query.refetch();
+    setHistoryRefresh((value) => value + 1);
   }
 
   return (
@@ -81,11 +110,7 @@ export function InspectionWorkspace({ context }: { context: InspectionNavigation
           selectedId={selectedId}
           disabled={query.catalog.status !== "success"}
           loading={query.catalog.status === "loading"}
-          onSelect={(selected) => {
-            activePointId.current = selected.id;
-            setSavedFicha(null);
-            router.replace(inspectionHref(selected.id, context.view, origin), { scroll: false });
-          }}
+          onSelect={selectPoint}
         />
       </section>
 
@@ -94,11 +119,21 @@ export function InspectionWorkspace({ context }: { context: InspectionNavigation
         {esInspector && <button type="button" aria-pressed={form} aria-controls="inspection-content" onClick={() => show("nueva")}>Nueva inspección</button>}
       </div>
 
+      {!form && query.catalog.status === "success" && <InspectionHistoryPoints
+        points={historyPoints}
+        selectedId={selectedId}
+        loading={inspections.status === "loading"}
+        refreshing={inspections.refreshing || query.point.refreshing}
+        error={inspections.error}
+        onRefresh={refreshInspections}
+        onSelect={(selected) => selectPoint(selected, "historial")}
+      />}
+
       <section id="inspection-content" className="inspection-content" aria-label={form ? "Registro de inspección" : "Historial del punto"}>
         {context.invalid ? <div className="surface-card ranking-state-panel"><QueryState state="empty" icon="inspection" title="Contexto de terreno no válido" description="El punto debe ser un entero positivo y la vista debe ser nueva o historial. Selecciona un punto de trabajo para continuar." /></div>
           : query.catalog.status === "loading" ? <div className="surface-card ranking-state-panel"><QueryState state="loading" title="Preparando terreno" description="Consultando los puntos y factores disponibles." /></div>
             : query.catalog.status === "error" ? <InspectionError error={query.catalog.error} onRetry={query.refetchCatalog} />
-              : selectedId === null ? <div className="surface-card ranking-state-panel"><QueryState state="empty" icon="inspection" title={choices.length ? "Selecciona un punto de trabajo" : "No hay puntos disponibles en el catálogo"} description="Busca una intersección o un ID para abrir su historial o registrar una nueva ficha de terreno." /></div>
+              : selectedId === null ? <div className="surface-card ranking-state-panel"><QueryState state="empty" icon="inspection" title={choices.length ? "Selecciona un punto de trabajo" : "No hay puntos disponibles en el catálogo"} description="Elige un punto de la lista de fichas o busca por nombre o ID para consultar su historial o registrar una nueva inspección." /></div>
                 : query.point.status === "loading" ? <div className="surface-card ranking-state-panel"><QueryState state="loading" title="Consultando punto" description="Obteniendo el contexto de las inspecciones." /></div>
                   : query.point.status === "error" ? <InspectionError error={query.point.error} onRetry={query.refetch} />
                     : !point ? null : form ? <>
@@ -115,7 +150,6 @@ export function InspectionWorkspace({ context }: { context: InspectionNavigation
                   onSubmitSuccess={(id) => {
                     if (activePointId.current !== point.id) return;
                     setSavedFicha({ pointId: point.id, id });
-                    query.refetch();
                     router.replace(inspectionHref(point.id, "historial", origin), { scroll: false });
                   }}
                 />
@@ -126,6 +160,7 @@ export function InspectionWorkspace({ context }: { context: InspectionNavigation
                 <HistorialFichas
                   key={point.id}
                   idPunto={point.id}
+                  refreshKey={historyRefresh}
                   session={session}
                   authToken={session?.accessToken ?? undefined}
                   rolUsuario={rol ?? undefined}

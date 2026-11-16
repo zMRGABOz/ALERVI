@@ -131,7 +131,10 @@ class Settings(BaseSettings):
         else "",
     )
     admin_totp_secret: str = _clean_env(
-        os.getenv("ADMIN_TOTP_SECRET"), "JBSWY3DPEHPK3PXP"
+        os.getenv("ADMIN_TOTP_SECRET"),
+        "JBSWY3DPEHPK3PXP"
+        if _clean_env(os.getenv("BACKEND_DEBUG"), "true").lower() in ("1", "true", "yes")
+        else "",
     )
 
     # -- CORS --
@@ -152,6 +155,18 @@ class Settings(BaseSettings):
         os.getenv("SUPABASE_STORAGE_BUCKET"),
         "fichas",
     )
+
+    # Selección explícita: Compose local usa disco persistente; despliegues, Supabase.
+    photo_storage_backend: str = "supabase"
+    photo_storage_directory: str = str(Path.home() / ".local" / "share" / "alervi" / "fichas")
+    photo_storage_public_base_url: str = "http://localhost:8000"
+
+    @field_validator("photo_storage_backend")
+    @classmethod
+    def _validate_photo_storage_backend(cls, value: str) -> str:
+        if value not in ("local", "supabase"):
+            raise ValueError("PHOTO_STORAGE_BACKEND debe ser local o supabase")
+        return value
 
     @field_validator(
         "db_pool_size",

@@ -1,44 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 import { ApiError } from "../services/api";
-import { getPointDetail, type PointDetail } from "../services/puntos";
-import type { Session } from "../types/session";
+import { getPointDetail } from "../services/puntos";
+import { queryKey } from "../services/query-cache";
+import { useCachedQuery } from "./useCachedQuery";
 import { useSession } from "./useSession";
 
-type DetailState =
-  | { status: "loading"; data: null; error: null }
-  | { status: "invalid-id"; data: null; error: null }
-  | { status: "success"; data: PointDetail; error: null }
-  | { status: "error" | "not-found" | "unscored" | "unauthenticated" | "forbidden"; data: null; error: ApiError };
-type Snapshot = { id: number; session: Session; attempt: number; state: DetailState };
-const LOADING: DetailState = { status: "loading", data: null, error: null };
+const NO_SESSION = new ApiError("Se requiere una sesión municipal válida.", { status: 401, code: "SESION_REQUERIDA" });
 
 export function usePointDetail(id: number | null) {
   const { session } = useSession();
-  const [attempt, setAttempt] = useState(0);
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const refetch = useCallback(() => setAttempt((value) => value + 1), []);
-
-  useEffect(() => {
-    if (id === null || !session) return;
-    const controller = new AbortController();
-    let active = true;
-    getPointDetail(id, { session, signal: controller.signal })
-      .then((data) => {
-        if (active) setSnapshot({ id, session, attempt, state: { status: "success", data, error: null } });
-      })
-      .catch((reason: unknown) => {
-        if (!active || controller.signal.aborted || session.signal.aborted) return;
-        const error = reason instanceof ApiError ? reason : new ApiError("No se pudo consultar el detalle del punto.", { status: 0, code: "ERROR_DETALLE" });
-        const status = error.status === 401 ? "unauthenticated" : error.status === 403 ? "forbidden" : error.code === "SIN_INDICE_DISPONIBLE" ? "unscored" : error.status === 404 ? "not-found" : "error";
-        setSnapshot({ id, session, attempt, state: { status, data: null, error } });
-      });
-    return () => { active = false; controller.abort(); };
-  }, [id, session, attempt]);
-
-  const state: DetailState = id === null ? { status: "invalid-id", data: null, error: null }
-    : !session ? { status: "unauthenticated", data: null, error: new ApiError("Se requiere una sesión municipal válida.", { status: 401, code: "SESION_REQUERIDA" }) }
-      : snapshot?.id === id && snapshot.session === session && snapshot.attempt === attempt ? snapshot.state : LOADING;
-  return { ...state, refetch };
+  const load = useCallback(() => session && id !== null ? getPointDetail(id, { session }) : Promise.reject(NO_SESSION), [id, session]);
+  const state = useCachedQuery(id !== null && session ? queryKey("point-detail", { id }) : null, load, session ?? undefined);
+  if (id === null) return { ...state, status: "invalid-id" as const, data: null, error: null };
+  if (!session) return { ...state, status: "unauthenticated" as const, data: null, error: NO_SESSION };
+  if (state.status === "error") {
+    const status = state.error.status === 401 ? "unauthenticated" : state.error.status === 403 ? "forbidden" : state.error.code === "SIN_INDICE_DISPONIBLE" ? "unscored" : state.error.status === 404 ? "not-found" : "error";
+    return { ...state, status } as const;
+  }
+  return state;
 }

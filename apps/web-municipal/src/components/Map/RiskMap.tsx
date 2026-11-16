@@ -15,6 +15,7 @@ export type RiskMapProps = {
   selectedId: number | null;
   selectionRevision?: number;
   focusPoint?: MapFocusPoint | null;
+  zoomOutOnDeselect?: boolean;
   ariaLabel?: string;
   onSelect: (id: number) => void;
 };

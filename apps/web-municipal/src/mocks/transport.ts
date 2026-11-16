@@ -297,16 +297,27 @@ export function createMockTransport({
       const isFactors = path === "/api/v1/factores" && method === "GET";
       const fichasMatch = /^\/api\/v1\/puntos\/(\d+)\/fichas$/.exec(path);
       const isFichas = fichasMatch !== null && method === "GET";
+      const isInspectionSummary = path === "/api/v1/inspections/resumen" && method === "GET";
       const isInspectionsPost = path === "/api/v1/inspections" && method === "POST";
       const isInspectionPatch = /^\/api\/v1\/inspections\/(\d+)$/.test(path) && method === "PATCH";
       const isFotosPost = /^\/api\/v1\/inspections\/(\d+)\/fotos$/.test(path) && method === "POST";
 
-      if (!isRanking && !isDetail && !isWeights && !isFactors && !isFichas && !isInspectionsPost && !isInspectionPatch && !isFotosPost) {
+      if (!isRanking && !isDetail && !isWeights && !isFactors && !isFichas && !isInspectionSummary && !isInspectionsPost && !isInspectionPatch && !isFotosPost) {
         throw new MockHttpError(
           404, "RUTA_NO_DISPONIBLE", "Esta operación no está disponible en la demostración.",
         );
       }
       const user = authenticate(session);
+
+      if (isInspectionSummary) {
+        const counts = new Map<number, number>();
+        if (scenario !== "empty") {
+          for (const ficha of fichasStore) counts.set(ficha.id_punto, (counts.get(ficha.id_punto) ?? 0) + 1);
+        }
+        const puntos = [...counts].map(([id_punto, total_fichas_inspeccion]) => ({ id_punto, total_fichas_inspeccion }))
+          .sort((left, right) => right.total_fichas_inspeccion - left.total_fichas_inspeccion || left.id_punto - right.id_punto);
+        return Response.json({ total_fichas_inspeccion: scenario === "empty" ? 0 : fichasStore.length, puntos });
+      }
 
       if (isFactors) {
         return Response.json(scenario === "empty" ? [] : demoInspectionFactors.filter((factor) => url.searchParams.get("solo_activos") !== "true" || factor.activo));
