@@ -121,7 +121,11 @@ def get_local_photo(filename: str):
         raise HTTPException(404, "Fotografía no encontrada.")
     if not path.is_file():
         raise HTTPException(404, "Fotografía no encontrada.")
-    return FileResponse(path, media_type="image/png" if path.suffix == ".png" else "image/jpeg", headers={"X-Content-Type-Options": "nosniff"})
+    return FileResponse(
+        path,
+        media_type="image/png" if path.suffix == ".png" else "image/jpeg",
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 
 # ==============================================================================
@@ -449,7 +453,9 @@ async def update_factor_riesgo(
     summary="Consultar ponderaciones vigentes del índice",
     include_in_schema=False,
 )
-async def get_ponderaciones_vigentes(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+async def get_ponderaciones_vigentes(
+    db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
+):
     """Retorna la configuración activa de pesos del índice multicriterio (RF-4, RB-8)."""
     return crud_service.obtener_ponderaciones()
 

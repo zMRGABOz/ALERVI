@@ -16,7 +16,6 @@ from typing import List, Optional, Tuple
 from fastapi import HTTPException
 
 from app.core.persistence import persistent
-
 from app.models.db_models import (
     Comuna,
     ElementoUrbano,
@@ -131,10 +130,21 @@ def _conteos_entorno(db: Session, ids: List[int]) -> dict:
     rows = (
         db.query(
             PuntoCritico.id_punto,
-            func.count(ElementoUrbano.id_elemento).filter(ElementoUrbano.categoria == "colegio").label("colegios"),
-            func.count(ElementoUrbano.id_elemento).filter(ElementoUrbano.categoria == "paradero").label("paraderos"),
+            func.count(ElementoUrbano.id_elemento)
+            .filter(ElementoUrbano.categoria == "colegio")
+            .label("colegios"),
+            func.count(ElementoUrbano.id_elemento)
+            .filter(ElementoUrbano.categoria == "paradero")
+            .label("paraderos"),
         )
-        .join(ElementoUrbano, ST_DWithin(cast(ElementoUrbano.geometry, Geography), cast(PuntoCritico.geometry, Geography), 150.0))
+        .join(
+            ElementoUrbano,
+            ST_DWithin(
+                cast(ElementoUrbano.geometry, Geography),
+                cast(PuntoCritico.geometry, Geography),
+                150.0,
+            ),
+        )
         .filter(PuntoCritico.id_punto.in_(ids))
         .group_by(PuntoCritico.id_punto)
         .all()
@@ -180,15 +190,23 @@ def obtener_capa_riesgo_publico(
         if bbox:
             try:
                 min_x, min_y, max_x, max_y = [float(c.strip()) for c in bbox.split(",")]
-                if not all(math.isfinite(v) for v in (min_x, min_y, max_x, max_y)) or not (-180 <= min_x <= max_x <= 180 and -90 <= min_y <= max_y <= 90):
+                if not all(
+                    math.isfinite(v) for v in (min_x, min_y, max_x, max_y)
+                ) or not (
+                    -180 <= min_x <= max_x <= 180 and -90 <= min_y <= max_y <= 90
+                ):
                     raise ValueError("Límites fuera de rango")
                 envelope = ST_SetSRID(ST_MakeEnvelope(min_x, min_y, max_x, max_y), 4326)
                 query = query.filter(ST_Intersects(PuntoCritico.geometry, envelope))
             except ValueError as exc:
-                raise HTTPException(400, "El bbox debe contener minLon,minLat,maxLon,maxLat válidos.") from exc
+                raise HTTPException(
+                    400, "El bbox debe contener minLon,minLat,maxLon,maxLat válidos."
+                ) from exc
 
         # El contrato devuelve la capa comunal, no un Top N parcial del ranking.
-        query = query.order_by(desc("total_siniestros"), PuntoCritico.id_punto).limit(limit)
+        query = query.order_by(desc("total_siniestros"), PuntoCritico.id_punto).limit(
+            limit
+        )
         rows = query.all()
 
         if not rows:
@@ -481,7 +499,10 @@ def obtener_detalle_punto(
         total_mg = sum(r.menos_graves for r in registros)
         total_lev = sum(r.leves for r in registros)
 
-        punto_geog = cast(ST_SetSRID(ST_MakePoint(float(punto_row.lon), float(punto_row.lat)), 4326), Geography)
+        punto_geog = cast(
+            ST_SetSRID(ST_MakePoint(float(punto_row.lon), float(punto_row.lat)), 4326),
+            Geography,
+        )
         elem_geog = cast(ElementoUrbano.geometry, Geography)
 
         elementos_cercanos = (

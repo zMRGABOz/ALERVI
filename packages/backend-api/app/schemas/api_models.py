@@ -363,10 +363,14 @@ class PuntoInspeccionesResumen(BaseModel):
 
 class ResumenInspeccionesResponse(BaseModel):
     total_fichas_inspeccion: int = Field(
-        ..., ge=0, example=12, description="Total global de fichas registradas, sin filtros del ranking."
+        ...,
+        ge=0,
+        example=12,
+        description="Total global de fichas registradas, sin filtros del ranking.",
     )
     puntos: List[PuntoInspeccionesResumen] = Field(
-        default_factory=list, description="Puntos con fichas, ordenados por cantidad descendente e ID ascendente."
+        default_factory=list,
+        description="Puntos con fichas, ordenados por cantidad descendente e ID ascendente.",
     )
 
 

@@ -108,7 +108,11 @@ def verify_mfa_code(code: Optional[str], secret: Optional[str] = None) -> bool:
 
     # 1. Código canónico oficial de desarrollo y pruebas (solo activo si está configurado y no deshabilitado)
     canonical = (getattr(settings, "admin_mfa_default_code", "") or "").strip()
-    if settings.backend_debug and canonical and canonical.lower() not in ("none", "disabled", "false", "0"):
+    if (
+        settings.backend_debug
+        and canonical
+        and canonical.lower() not in ("none", "disabled", "false", "0")
+    ):
         if hmac.compare_digest(c, canonical):
             return True
 
@@ -190,7 +194,11 @@ def decode_access_token(token: str) -> Dict[str, Any]:
 
     header_b64, payload_b64, sig_b64 = parts
     header = json.loads(_b64url_decode(header_b64).decode("utf-8"))
-    if not isinstance(header, dict) or header.get("alg") != "HS256" or header.get("typ") != "JWT":
+    if (
+        not isinstance(header, dict)
+        or header.get("alg") != "HS256"
+        or header.get("typ") != "JWT"
+    ):
         raise ValueError("Cabecera JWT inválida")
     signing_input = f"{header_b64}.{payload_b64}".encode("utf-8")
     expected_sig = hmac.new(
@@ -251,7 +259,11 @@ async def get_current_user(
 def _active_user(db, claims: Dict[str, Any]) -> Dict[str, Any]:
     user = db.query(Usuario).filter(Usuario.id_usuario == claims["id_usuario"]).first()
     if not user or not user.activo or user.correo != claims.get("correo"):
-        raise HTTPException(401, "La cuenta de la sesión ya no está disponible.", headers={"WWW-Authenticate": "Bearer"})
+        raise HTTPException(
+            401,
+            "La cuenta de la sesión ya no está disponible.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return {**claims, "rol": user.rol}
 
 
@@ -271,5 +283,7 @@ async def require_inspector(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     if current_user.get("rol") != "inspector":
-        raise HTTPException(403, "El registro de fichas está reservado al rol Inspector.")
+        raise HTTPException(
+            403, "El registro de fichas está reservado al rol Inspector."
+        )
     return current_user

@@ -187,7 +187,9 @@ def photo_url(storage_path: str) -> str:
     return f"{settings.supabase_url.rstrip('/')}/storage/v1/object/public/{settings.supabase_storage_bucket}/{storage_path}"
 
 
-def upload_photo(file_bytes: bytes, extension: str, mime_type: str) -> Tuple[str, str, int]:
+def upload_photo(
+    file_bytes: bytes, extension: str, mime_type: str
+) -> Tuple[str, str, int]:
     """Almacena bytes en el proveedor seleccionado explícitamente, sin respaldo implícito."""
     if settings.photo_storage_backend == "supabase":
         return upload_photo_to_supabase(file_bytes, extension, mime_type)
@@ -217,6 +219,9 @@ def delete_photo(storage_path: str) -> None:
     with httpx.Client(timeout=10.0) as client:
         response = client.delete(
             f"{settings.supabase_url.rstrip('/')}/storage/v1/object/{settings.supabase_storage_bucket}/{storage_path}",
-            headers={"Authorization": f"Bearer {settings.supabase_key}", "apikey": settings.supabase_key},
+            headers={
+                "Authorization": f"Bearer {settings.supabase_key}",
+                "apikey": settings.supabase_key,
+            },
         )
         response.raise_for_status()
