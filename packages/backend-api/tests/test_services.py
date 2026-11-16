@@ -1,16 +1,18 @@
 """
-Pruebas unitarias para spatial_service y crud_service.
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Garantiza cobertura > 85% sobre la logica de negocio, queries PostGIS y CRUD.
+Pruebas de servicios para spatial_service y crud_service.
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Verifica scoring, consultas PostGIS, CRUD y errores de persistencia.
 """
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
+from sqlalchemy.exc import OperationalError
 
-from app.core.security import get_password_hash
+from app.models.db_models import FichaInspeccion, Fotografia
 from app.schemas.api_models import (
     AlertCheckRequest,
     CargaDatosBatchRequest,
@@ -98,7 +100,7 @@ def test_normalizar_comuna_filtro():
 
 
 # ==============================================================================
-# Pruebas de spatial_service: endpoints con Mock DB y Fallback
+# Pruebas de spatial_service: consultas, datos ausentes y errores de persistencia
 # ==============================================================================
 
 
@@ -135,21 +137,27 @@ def test_obtener_capa_riesgo_publico_mock():
     assert feat.geometry.coordinates == [-73.05, -36.82]
     assert feat.properties.total_siniestros == 15
 
-    # Con bbox
+    # Un bbox válido filtra la consulta; un bbox inválido se rechaza.
     res_bbox = spatial_service.obtener_capa_riesgo_publico(
-        mock_db, comuna="Concepción", bbox="invalido"
+        mock_db, comuna="Concepción", bbox="-73.1,-36.9,-73.0,-36.8"
     )
     assert len(res_bbox.features) == 1
+    with pytest.raises(HTTPException) as error:
+        spatial_service.obtener_capa_riesgo_publico(mock_db, bbox="invalido")
+    assert error.value.status_code == 400
 
-    # Con db None (fallback)
-    fb = spatial_service.obtener_capa_riesgo_publico(None)
-    assert len(fb.features) >= 1
+    with pytest.raises(HTTPException) as error:
+        spatial_service.obtener_capa_riesgo_publico(None)
+    assert error.value.status_code == 503
 
-    # Con excepcion en BD (fallback resiliente)
     mock_db_err = MagicMock()
-    mock_db_err.query.side_effect = RuntimeError("Conexion rechazada")
-    fb_err = spatial_service.obtener_capa_riesgo_publico(mock_db_err)
-    assert len(fb_err.features) >= 1
+    mock_db_err.query.side_effect = OperationalError(
+        "SELECT", {}, RuntimeError("Conexion rechazada")
+    )
+    with pytest.raises(HTTPException) as error:
+        spatial_service.obtener_capa_riesgo_publico(mock_db_err)
+    assert error.value.status_code == 503
+    mock_db_err.rollback.assert_called_once()
 
 
 def test_obtener_ranking_mock():
@@ -179,15 +187,18 @@ def test_obtener_ranking_mock():
     assert res.puntos[0].posicion_ranking == 1
     assert res.puntos[0].estado_indice == "CALCULADO"
 
-    # Fallback con db=None
-    fb = spatial_service.obtener_ranking(None)
-    assert fb.total_puntos >= 1
+    with pytest.raises(HTTPException) as error:
+        spatial_service.obtener_ranking(None)
+    assert error.value.status_code == 503
 
-    # Fallback con excepcion
     mock_db_err = MagicMock()
-    mock_db_err.query.side_effect = RuntimeError("Error en ranking")
-    fb_err = spatial_service.obtener_ranking(mock_db_err)
-    assert fb_err.total_puntos >= 1
+    mock_db_err.query.side_effect = OperationalError(
+        "SELECT", {}, RuntimeError("Error en ranking")
+    )
+    with pytest.raises(HTTPException) as error:
+        spatial_service.obtener_ranking(mock_db_err)
+    assert error.value.status_code == 503
+    mock_db_err.rollback.assert_called_once()
 
 
 def test_ranking_f01_filtro_anio_individual():
@@ -290,59 +301,23 @@ def test_ranking_f03_respuesta_vacia_legitima():
     assert all(p.id_punto != 101 for p in res.puntos)
 
 
-def test_obtener_detalle_punto_mock():
-    """Verifica el detalle analitico de un punto con entorno urbano."""
-    mock_db = MagicMock()
-    mock_punto = MagicMock()
-    mock_punto.id_punto = 101
-    mock_punto.lat = -36.8271
-    mock_punto.lon = -73.0543
-    mock_punto.comuna_nombre = "Concepción"
-
-    mock_reg = MagicMock()
-    mock_reg.anio = 2024
-    mock_reg.cantidad_siniestros = 12
-    mock_reg.fallecidos = 1
-    mock_reg.graves = 3
-    mock_reg.menos_graves = 1
-    mock_reg.leves = 4
-
-    mock_elem_escuela = MagicMock()
-    mock_elem_escuela.id_elemento = 1
-    mock_elem_escuela.categoria = "colegio"
-    mock_elem_escuela.nombre = "Colegio Republica"
-    mock_elem_escuela.dist_m = 65.0
-
-    mock_elem_paradero = MagicMock()
-    mock_elem_paradero.id_elemento = 2
-    mock_elem_paradero.categoria = "paradero"
-    mock_elem_paradero.nombre = "Parada Los Carrera"
-    mock_elem_paradero.dist_m = 30.0
-
-    mock_db.query.return_value.join.return_value.filter.return_value.first.return_value = mock_punto
-    mock_db.query.return_value.filter.return_value.order_by.return_value.all.return_value = [
-        mock_reg
-    ]
-    mock_db.query.return_value.filter.return_value.order_by.return_value.all.return_value = [
-        mock_elem_escuela,
-        mock_elem_paradero,
-    ]
-
-    detalle = spatial_service.obtener_detalle_punto(mock_db, 101)
+def test_obtener_detalle_punto_persistido(db_session):
+    """Contrasta historia y distancias del detalle con PostGIS real."""
+    detalle = spatial_service.obtener_detalle_punto(db_session, 101)
     assert detalle is not None
     assert detalle.id_punto == 101
-    assert len(detalle.historico_anual) >= 1
-    assert detalle.entorno_urbano.total_colegios_buffer >= 1
-    assert detalle.entorno_urbano.total_paraderos_buffer >= 1
+    assert [row.anio for row in detalle.historico_anual] == [2025, 2024]
+    assert detalle.entorno_urbano.total_colegios_buffer == 1
+    assert detalle.entorno_urbano.total_paraderos_buffer == 1
+    assert 40 <= detalle.entorno_urbano.colegio_mas_cercano.distancia_m <= 70
+    assert 10 <= detalle.entorno_urbano.paradero_mas_cercano.distancia_m <= 30
+    assert detalle.total_fichas_inspeccion == 1
 
-    # Punto no encontrado en BD -> fallback
-    mock_db.query.return_value.join.return_value.filter.return_value.first.return_value = None
-    fb = spatial_service.obtener_detalle_punto(mock_db, 9999)
-    assert fb is not None
+    assert spatial_service.obtener_detalle_punto(db_session, 9999) is None
 
-    # Fallback con db=None
-    fb_none = spatial_service.obtener_detalle_punto(None, 101)
-    assert fb_none is not None
+    with pytest.raises(HTTPException) as error:
+        spatial_service.obtener_detalle_punto(None, 101)
+    assert error.value.status_code == 503
 
 
 def test_evaluar_alerta_proximidad_cinematica():
@@ -437,9 +412,10 @@ def test_evaluar_alerta_proximidad_cinematica():
     assert res_ttc.alerta_activa is False
     assert res_ttc.telemetria_status == "SUPRIMIDO_TTC_MAYOR_12S"
 
-    # 6. Fallback con db=None
-    fb = spatial_service.evaluar_alerta_proximidad(None, req_alerta)
-    assert fb.alerta_activa is True
+    # Una BD ausente no debe fabricar una alerta.
+    with pytest.raises(HTTPException) as error:
+        spatial_service.evaluar_alerta_proximidad(None, req_alerta)
+    assert error.value.status_code == 503
 
 
 # ==============================================================================
@@ -447,93 +423,58 @@ def test_evaluar_alerta_proximidad_cinematica():
 # ==============================================================================
 
 
-def test_crud_usuarios():
-    """Verifica operaciones CRUD de usuarios."""
-    # Autenticacion con credenciales correctas
+def test_crud_usuarios(db_session):
+    """Verifica autenticación, filtros y CRUD con cuentas persistidas."""
     auth_ok = crud_service.authenticate_user(
-        None,
+        db_session,
         LoginRequest(correo="inspector@alervi.test", password="Dev-2026-ALERVI"),
     )
-    assert auth_ok is not None
+    assert auth_ok.usuario.id_usuario == 2
     assert auth_ok.usuario.rol == "inspector"
 
-    # Con mock DB
-    mock_db = MagicMock()
-    mock_user = MagicMock()
-    mock_user.id_usuario = 5
-    mock_user.correo = "test@alervi.cl"
-    mock_user.rol = "inspector"
-    mock_user.activo = True
-    mock_user.hash_clave = get_password_hash("Password123*")
-    mock_user.fecha_creacion = None
-
-    mock_db.query.return_value.filter.return_value.first.return_value = mock_user
-    auth_db = crud_service.authenticate_user(
-        mock_db,
-        LoginRequest(correo="test@alervi.cl", password="Password123*"),
+    users = crud_service.listar_usuarios(
+        db_session, rol="inspector", activo=True, limit=1, offset=1
     )
-    assert auth_db is not None
-    assert auth_db.usuario.id_usuario == 5
+    assert users.total == 2
+    assert [user.id_usuario for user in users.usuarios] == [99]
 
-    # Listar usuarios
-    mock_db.query.return_value.count.return_value = 1
-    mock_db.query.return_value.order_by.return_value.offset.return_value.limit.return_value.all.return_value = [
-        mock_user
-    ]
-    u_list = crud_service.listar_usuarios(mock_db)
-    assert u_list.total == 1
-    assert len(u_list.usuarios) == 1
-
-    # Crear usuario
-    req_create = UsuarioCreateRequest(
+    request = UsuarioCreateRequest(
         correo="nuevo@alervi.cl", clave="Segura123*", rol="inspector"
     )
-    u_created = crud_service.crear_usuario(mock_db, req_create)
-    assert u_created.correo == "nuevo@alervi.cl"
-
-    # Obtener y actualizar usuario
-    u_get = crud_service.obtener_usuario_por_id(mock_db, 5)
-    assert u_get is not None
-    assert u_get.id_usuario == 5
-
-    u_up = crud_service.actualizar_usuario(
-        mock_db, 5, UsuarioUpdateRequest(rol="administrador", activo=True)
+    created = crud_service.crear_usuario(db_session, request)
+    assert created.correo == "nuevo@alervi.cl"
+    assert (
+        crud_service.obtener_usuario_por_id(db_session, created.id_usuario) == created
     )
-    assert u_up is not None
-    assert u_up.rol == "administrador"
 
-    # Usuario no encontrado (retorna fallback resiliente)
-    mock_db.query.return_value.filter.return_value.first.return_value = None
-    u_none = crud_service.obtener_usuario_por_id(mock_db, 999)
-    assert u_none is not None
-    assert u_none.id_usuario == 999
-    u_up_none = crud_service.actualizar_usuario(mock_db, 999, UsuarioUpdateRequest())
-    assert u_up_none is not None
-    assert u_up_none.id_usuario == 999
+    updated = crud_service.actualizar_usuario(
+        db_session,
+        created.id_usuario,
+        UsuarioUpdateRequest(rol="administrador", activo=False),
+    )
+    assert updated.rol == "administrador"
+    assert updated.activo is False
+
+    assert crud_service.obtener_usuario_por_id(db_session, 999999) is None
+    assert (
+        crud_service.actualizar_usuario(db_session, 999999, UsuarioUpdateRequest())
+        is None
+    )
+
+    # Un duplicado debe hacer rollback y dejar operativa la siguiente consulta.
+    with pytest.raises(HTTPException) as error:
+        crud_service.crear_usuario(db_session, request)
+    assert error.value.status_code == 409
+    assert (
+        crud_service.obtener_usuario_por_id(db_session, created.id_usuario) == updated
+    )
 
 
-def test_crud_factores_y_ponderaciones():
-    """Verifica catalogo de factores de riesgo y calibracion de ponderaciones."""
-    mock_db = MagicMock()
-    mock_f = MagicMock()
-    mock_f.id_factor = 1
-    mock_f.nombre = "Curva peligrosa"
-    mock_f.descripcion = "Radio de giro reducido"
-    mock_f.activo = True
-
-    mock_db.query.return_value.filter.return_value.order_by.return_value.all.return_value = [
-        mock_f
-    ]
-    mock_db.query.return_value.order_by.return_value.all.return_value = [mock_f]
-    mock_db.query.return_value.filter.return_value.first.return_value = mock_f
-
-    # Listar factores con db=None (fallback)
-    factores_fb = crud_service.listar_factores_riesgo(None, solo_activos=True)
-    assert len(factores_fb) >= 1
-
-    # Crear factor
+def test_crud_factores_y_ponderaciones(db_session):
+    """Verifica catálogo persistido, filtros de actividad y validación de pesos."""
+    assert len(crud_service.listar_factores_riesgo(db_session)) == 2
     f_new = crud_service.crear_factor_riesgo(
-        mock_db,
+        db_session,
         FactorRiesgoCreateRequest(
             nombre="Bache profundo", descripcion="Defecto en pavimento"
         ),
@@ -542,21 +483,28 @@ def test_crud_factores_y_ponderaciones():
 
     # Actualizar factor
     f_up = crud_service.actualizar_factor_riesgo(
-        mock_db,
-        1,
+        db_session,
+        f_new.id_factor,
         FactorRiesgoUpdateRequest(
-            nombre="Curva muy peligrosa", descripcion="Actualizado", activo=True
+            nombre="Curva muy peligrosa", descripcion="Actualizado", activo=False
         ),
     )
     assert f_up is not None
     assert f_up.nombre == "Curva muy peligrosa"
+    assert len(crud_service.listar_factores_riesgo(db_session)) == 2
+    assert len(crud_service.listar_factores_riesgo(db_session, solo_activos=False)) == 3
+    assert (
+        crud_service.actualizar_factor_riesgo(
+            db_session, 999999, FactorRiesgoUpdateRequest(activo=False)
+        )
+        is None
+    )
 
     # Obtener ponderaciones
     p_actuales = crud_service.obtener_ponderaciones()
     assert p_actuales.w_severidad is not None
 
-    # Calibrar ponderaciones valida suma != 1.0 (ValueError)
-    with pytest.raises(ValueError, match="La suma de ponderaciones"):
+    with pytest.raises(HTTPException) as error:
         crud_service.calibrar_ponderaciones(
             PonderacionesUpdateRequest(
                 w_severidad=0.5,
@@ -566,6 +514,8 @@ def test_crud_factores_y_ponderaciones():
                 descripcion_cambio="Suma no permitida",
             )
         )
+    assert error.value.status_code == 422
+    assert "La suma de ponderaciones" in error.value.detail
 
     # Calibracion valida
     valid_req = PonderacionesUpdateRequest(
@@ -580,100 +530,88 @@ def test_crud_factores_y_ponderaciones():
     assert calib.version == "v1.1-calibrada-2026"
 
 
-def test_crud_fichas_y_fotografias():
-    """Verifica creacion y modificacion de fichas tecnicas e inspecciones."""
-    mock_db = MagicMock()
-    mock_insp = MagicMock()
-    mock_insp.id_usuario = 2
-    mock_insp.correo = "inspector@alervi.test"
-
-    mock_fac = MagicMock()
-    mock_fac.id_factor = 1
-    mock_fac.nombre = "Poca visibilidad"
-    mock_fac.descripcion = "Arboles obstruyen senal"
-    mock_fac.activo = True
-
-    mock_db.query.return_value.filter.return_value.first.return_value = mock_insp
-    mock_db.query.return_value.filter.return_value.all.return_value = [mock_fac]
-
-    # Crear ficha
+def test_crud_fichas_y_fotografias(db_session, inspector_user, jpeg_photo):
+    """Crear y editar una ficha debe persistir sus relaciones y el archivo de evidencia."""
     req_ficha = FichaInspeccionCreateRequest(
         id_punto=101,
         notas="Inspeccion visual",
         factores_riesgo_ids=[1],
-        fecha_visita="2026-11-05",
+        fecha_visita=date.today().isoformat(),
     )
-    res_ficha = crud_service.crear_ficha_inspeccion(mock_db, req_ficha)
+    res_ficha = crud_service.crear_ficha_inspeccion(
+        db_session, req_ficha, current_user=inspector_user
+    )
     assert res_ficha.id_punto == 101
     assert res_ficha.id_inspector == 2
 
-    # Obtener ficha
-    mock_ficha_obj = MagicMock()
-    mock_ficha_obj.id_ficha = 10
-    mock_ficha_obj.id_punto = 101
-    mock_ficha_obj.id_usuario = 2
-    mock_ficha_obj.usuario.correo = "inspector@alervi.test"
-    mock_ficha_obj.fecha_visita = date(2026, 11, 5)
-    mock_ficha_obj.notas = "Revision inicial"
-    mock_ficha_obj.factores_riesgo = [mock_fac]
-    mock_ficha_obj.fotografias = []
-
-    mock_db.query.return_value.filter.return_value.first.return_value = mock_ficha_obj
-    f_get = crud_service.obtener_ficha_por_id(mock_db, 10)
+    id_ficha = res_ficha.id_ficha
+    f_get = crud_service.obtener_ficha_por_id(db_session, id_ficha)
     assert f_get is not None
-    assert f_get.id_ficha == 10
+    assert f_get.id_ficha == id_ficha
 
     # Actualizar ficha
     req_up_ficha = FichaInspeccionUpdateRequest(
-        notas="Notas actualizadas", factores_riesgo_ids=[1]
+        notas="Notas actualizadas",
+        factores_riesgo_ids=[2],
+        fecha_visita=date.today().isoformat(),
     )
-    f_up = crud_service.actualizar_ficha_inspeccion(mock_db, 10, req_up_ficha)
+    f_up = crud_service.actualizar_ficha_inspeccion(
+        db_session, id_ficha, req_up_ficha, current_user=inspector_user
+    )
     assert f_up is not None
     assert f_up.notas == "Notas actualizadas"
+    stored = db_session.get(FichaInspeccion, id_ficha)
+    assert stored.notas == f_up.notas
+    assert [factor.id_factor for factor in stored.factores_riesgo] == [2]
 
-    # Listar fichas de punto
-    mock_db.query.return_value.filter.return_value.order_by.return_value.all.return_value = [
-        mock_ficha_obj
-    ]
-    fichas_list = crud_service.listar_fichas_de_punto(mock_db, 101)
-    assert len(fichas_list) == 1
+    fichas_list = crud_service.listar_fichas_de_punto(db_session, 101)
+    assert [ficha.id_ficha for ficha in fichas_list] == [id_ficha, 1]
 
-    # Adjuntar fotografia
-    foto_res = crud_service.agregar_fotografia_ficha(mock_db, 10)
-    assert foto_res.id_ficha == 10
+    foto_res = crud_service.agregar_fotografia_ficha(
+        db_session,
+        id_ficha,
+        file_bytes=jpeg_photo,
+        current_user=inspector_user,
+    )
+    assert foto_res.id_ficha == id_ficha
     uuid_str = foto_res.ruta.split(".")[0]
     assert uuid.UUID(uuid_str)
     assert foto_res.url is not None
-    assert "/fichas/" in foto_res.url
+    assert "/storage/fichas/" in foto_res.url
+    assert db_session.get(Fotografia, foto_res.id_foto).ruta == foto_res.ruta
+    assert (
+        crud_service.obtener_ficha_por_id(db_session, id_ficha).fotografias[0].id_foto
+        == foto_res.id_foto
+    )
 
-    # Fallback con db=None
-    f_none = crud_service.obtener_ficha_por_id(None, 999)
-    assert f_none is not None
-    assert f_none.id_ficha == 999
+    assert crud_service.obtener_ficha_por_id(db_session, 999999) is None
+    assert (
+        crud_service.actualizar_ficha_inspeccion(
+            db_session, 999999, req_up_ficha, current_user=inspector_user
+        )
+        is None
+    )
+    with pytest.raises(HTTPException) as error:
+        crud_service.obtener_ficha_por_id(None, 999999)
+    assert error.value.status_code == 503
 
 
-def test_crud_auditoria_y_carga_vial():
-    """Verifica listado de eventos de auditoria y procesamiento de lotes de siniestros."""
-    mock_db = MagicMock()
-    mock_ev = MagicMock()
-    mock_ev.id_evento = 1
-    mock_ev.id_usuario = 1
-    mock_ev.usuario.correo = "admin@alervi.test"
-    mock_ev.accion = "LOGIN"
-    mock_ev.entidad_afectada = "USUARIO"
-    mock_ev.id_afectado = 1
-    mock_ev.fecha_hora = datetime.now(timezone.utc)
-
-    mock_db.query.return_value.count.return_value = 1
-    mock_db.query.return_value.order_by.return_value.offset.return_value.limit.return_value.all.return_value = [
-        mock_ev
-    ]
-
-    # Auditoria
-    auditoria = crud_service.listar_eventos_auditoria(mock_db)
+def test_crud_auditoria_y_carga_vial(db_session):
+    """Audita en PostgreSQL y rechaza la ingesta HTTP pendiente de implementar."""
+    event = crud_service.registrar_evento_auditoria(
+        db_session,
+        accion="login_ok",
+        id_usuario=1,
+        entidad_afectada="usuario",
+        id_afectado=1,
+    )
+    auditoria = crud_service.listar_eventos_auditoria(
+        db_session, accion="login_ok", id_usuario=1
+    )
     assert auditoria.total == 1
     assert len(auditoria.eventos) == 1
-    assert auditoria.eventos[0].accion == "LOGIN"
+    assert auditoria.eventos[0].id_evento == event.id_evento
+    assert auditoria.eventos[0].accion == "login_ok"
 
     # Procesar carga vial
     batch = CargaDatosBatchRequest(
@@ -692,14 +630,10 @@ def test_crud_auditoria_y_carga_vial():
             )
         ],
     )
-    mock_db.query.return_value.filter.return_value.first.return_value = None
-    carga_res = crud_service.procesar_carga_vial(mock_db, batch)
-    assert carga_res.total_procesados == 1
-    assert carga_res.estado == "COMPLETADA_CON_ADVERTENCIAS"
-
-    # Fallback con db=None
-    fb_carga = crud_service.procesar_carga_vial(None, batch)
-    assert fb_carga.estado == "COMPLETADA_CON_ADVERTENCIAS"
+    for session in (db_session, None):
+        with pytest.raises(HTTPException) as error:
+            crud_service.procesar_carga_vial(session, batch)
+        assert error.value.status_code == 501
 
 
 def test_login_attempt_tracker_unit():
@@ -740,7 +674,7 @@ def test_login_attempt_tracker_unit():
     assert exp_tracker.is_locked("exp@alervi.cl") is False
 
 
-def test_authenticate_user_bloqueo_y_auditoria_unit():
+def test_authenticate_user_bloqueo_y_auditoria_unit(db_session):
     """RNF-S-6 / RNF-S-4: Verifica que authenticate_user lanza 403/429 en el 6to intento y audita."""
     from fastapi import HTTPException
 
@@ -758,7 +692,7 @@ def test_authenticate_user_bloqueo_y_auditoria_unit():
         for _ in range(5):
             with pytest.raises(HTTPException) as exc_info:
                 authenticate_user(
-                    None,
+                    db_session,
                     LoginRequest(correo=test_mail, password="ClaveInvalida123*"),
                 )
             assert exc_info.value.status_code == 401
@@ -766,7 +700,7 @@ def test_authenticate_user_bloqueo_y_auditoria_unit():
         # El 6to intento levanta 403 o 429
         with pytest.raises(HTTPException) as exc_info:
             authenticate_user(
-                None,
+                db_session,
                 LoginRequest(correo=test_mail, password="ClaveInvalida123*"),
             )
         assert exc_info.value.status_code in (403, 429)
@@ -774,12 +708,13 @@ def test_authenticate_user_bloqueo_y_auditoria_unit():
 
         # Registro directo en auditoría
         ev = registrar_evento_auditoria(
-            None,
+            db_session,
             accion="login_fallido",
             correo_usuario=test_mail,
             detalles="Prueba unitaria de auditoría",
         )
-        assert ev is None  # Con db=None retorna None pero guarda en buffer
+        assert ev.id_evento > 0
+        assert ev.accion == "login_fallido"
     finally:
         reset_login_attempts(test_mail)
 
@@ -811,7 +746,7 @@ def test_verify_mfa_code_unit():
     assert verify_mfa_code("000000") is False
 
 
-def test_authenticate_user_admin_mfa_unit():
+def test_authenticate_user_admin_mfa_unit(db_session):
     """RNF-S-1: Login de administrador exige código MFA antes de entregar token Bearer."""
     from fastapi import HTTPException
 
@@ -820,7 +755,7 @@ def test_authenticate_user_admin_mfa_unit():
     # Admin sin código MFA -> debe levantar HTTP 401
     with pytest.raises(HTTPException) as exc_info:
         authenticate_user(
-            None,
+            db_session,
             LoginRequest(correo="admin@alervi.test", password="Dev-2026-ALERVI"),
         )
     assert exc_info.value.status_code == 401
@@ -829,7 +764,7 @@ def test_authenticate_user_admin_mfa_unit():
     # Admin con código MFA inválido -> debe levantar HTTP 401
     with pytest.raises(HTTPException) as exc_info:
         authenticate_user(
-            None,
+            db_session,
             LoginRequest(
                 correo="admin@alervi.test",
                 password="Dev-2026-ALERVI",
@@ -841,7 +776,7 @@ def test_authenticate_user_admin_mfa_unit():
 
     # Admin con código MFA válido -> debe entregar token Bearer
     resp = authenticate_user(
-        None,
+        db_session,
         LoginRequest(
             correo="admin@alervi.test",
             password="Dev-2026-ALERVI",

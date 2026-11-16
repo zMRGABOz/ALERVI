@@ -6,7 +6,7 @@
 import React from "react";
 import "@testing-library/jest-dom";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { FormFicha } from "../components/FichaTerreno/FormFicha";
+import { FormFicha, obtenerFechaHoyLocal } from "../components/FichaTerreno/FormFicha";
 import { HistorialFichas } from "../components/FichaTerreno/HistorialFichas";
 import { UploadFotos } from "../components/FichaTerreno/UploadFotos";
 import type { FactorRiesgo, FichaInspeccion } from "../components/FichaTerreno/types";
@@ -87,7 +87,7 @@ describe("Servicio inspections.ts", () => {
   test("getFichasPunto, createFicha, updateFicha y uploadFotoFicha invocan transport correctamente", async () => {
     mockedTransport
       .mockResolvedValueOnce(jsonResponse(fichasMock))
-      .mockResolvedValueOnce(jsonResponse(fichasMock[0], 201))
+      .mockResolvedValueOnce(jsonResponse({ ...fichasMock[0], notas: "Prueba" }, 201))
       .mockResolvedValueOnce(jsonResponse({ ...fichasMock[0], notas: "Editada" }))
       .mockResolvedValueOnce(
         jsonResponse({
@@ -165,7 +165,12 @@ describe("Componente FormFicha", () => {
   });
 
   test("TC-13: registra una ficha válida con factor y nota y dispara onSubmitSuccess", async () => {
-    mockedTransport.mockResolvedValueOnce(jsonResponse({ ...fichasMock[0], id_ficha: 99 }, 201));
+    mockedTransport.mockResolvedValueOnce(jsonResponse({
+      ...fichasMock[0],
+      id_ficha: 99,
+      fecha_visita: obtenerFechaHoyLocal(),
+      notas: "Obstrucción parcial por kiosco.",
+    }, 201));
     const onSuccess = jest.fn();
 
     render(

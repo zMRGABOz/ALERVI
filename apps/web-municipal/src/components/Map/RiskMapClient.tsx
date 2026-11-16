@@ -23,6 +23,7 @@ type CartographyState = typeof LOADING | typeof READY | {
   message: string;
 };
 type MapSnapshot = {
+  basePoints: readonly PublicRiskPoint[];
   points: readonly PublicRiskPoint[];
   selectedId: number | null;
   selectionRevision: number;
@@ -36,10 +37,10 @@ function readMapColors(container: HTMLElement): MapColors {
   const resolve = (value: string) => style.getPropertyValue(value.slice(4, -1)).trim();
   return {
     risks: {
-      CRITICO: resolve(riskLevels.CRITICO.color),
-      ALTO: resolve(riskLevels.ALTO.color),
-      MEDIO: resolve(riskLevels.MEDIO.color),
-      BAJO: resolve(riskLevels.BAJO.color),
+      CRITICO: resolve(riskLevels.CRITICO.markerColor),
+      ALTO: resolve(riskLevels.ALTO.markerColor),
+      MEDIO: resolve(riskLevels.MEDIO.markerColor),
+      BAJO: resolve(riskLevels.BAJO.markerColor),
     },
     surface: style.getPropertyValue("--color-surface").trim(),
     heading: style.getPropertyValue("--color-heading").trim(),
@@ -124,9 +125,8 @@ function pointPopup(point: PublicRiskPoint, scopeLabel: string, onClose: () => v
 }
 
 function updateSelection(map: MapLibreMap, popup: Popup, snapshot: MapSnapshot) {
-  if (map.getLayer(SELECTION_LAYER)) {
-    map.setFilter(SELECTION_LAYER, ["==", ["get", "id_punto"], snapshot.selectedId ?? -1]);
-  }
+  if (!map.getLayer(SELECTION_LAYER)) return;
+  map.setFilter(SELECTION_LAYER, ["==", ["get", "id_punto"], snapshot.selectedId ?? -1]);
   const selected = snapshot.points.find((point) => point.id_punto === snapshot.selectedId);
   popup.remove();
   if (!selected) return;
@@ -141,6 +141,7 @@ function updateSelection(map: MapLibreMap, popup: Popup, snapshot: MapSnapshot) 
   popup.setLngLat(position)
     .setDOMContent(pointPopup(selected, snapshot.scopeLabel, () => {
       popup.remove();
+      snapshot.onSelect(selected.id_punto);
       map.getCanvas().focus({ preventScroll: true });
     }))
     .addTo(map);
@@ -154,15 +155,17 @@ function cartographyError(error: unknown): string {
   return "No se pudo cargar el estilo o parte de los recursos de CARTO. Revisa la conexión e intenta nuevamente. La lista de puntos sigue disponible.";
 }
 
-export default function RiskMapClient({ points, selectedId, selectionRevision = 0, onSelect, focusPoint, ariaLabel = "Mapa público de puntos críticos de Concepción" }: RiskMapProps) {
+export default function RiskMapClient({ points, selectedId, selectionRevision = 0, onSelect, focusPoint, zoomOutOnDeselect = false, ariaLabel = "Mapa público de puntos críticos de Concepción" }: RiskMapProps) {
   const displayedPoints = useMemo(() => {
     if (!focusPoint) return points;
-    return points.some((point) => point.id_punto === focusPoint.point.id_punto)
+    const existing = points.find((point) => point.id_punto === focusPoint.point.id_punto);
+    if (existing === focusPoint.point) return points;
+    return existing
       ? points.map((point) => point.id_punto === focusPoint.point.id_punto ? focusPoint.point : point)
       : [...points, focusPoint.point];
   }, [points, focusPoint]);
   const scopeLabel = focusPoint?.point.id_punto === selectedId ? focusPoint.scopeLabel : PUBLIC_SCOPE;
-  const snapshotRef = useRef<MapSnapshot>({ points: displayedPoints, selectedId, selectionRevision, scopeLabel, onSelect });
+  const snapshotRef = useRef<MapSnapshot>({ basePoints: points, points: displayedPoints, selectedId, selectionRevision, scopeLabel, onSelect });
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const popupRef = useRef<Popup | null>(null);
@@ -172,21 +175,26 @@ export default function RiskMapClient({ points, selectedId, selectionRevision = 
 
   useEffect(() => {
     const previous = snapshotRef.current;
-    const snapshot = { points: displayedPoints, selectedId, selectionRevision, scopeLabel, onSelect };
+    const snapshot = { basePoints: points, points: displayedPoints, selectedId, selectionRevision, scopeLabel, onSelect };
     snapshotRef.current = snapshot;
     const map = mapRef.current;
     const popup = popupRef.current;
-    if (!map || !popup) return;
+    if (!map || !popup || !map.getLayer(POINTS_LAYER)) return;
     const pointsChanged = previous.points !== displayedPoints;
+    const layerChanged = previous.basePoints !== points;
     if (pointsChanged && colorsRef.current) {
       const source = map.getSource(POINTS_SOURCE);
       if (source instanceof GeoJSONSource) source.setData(toMapLibrePoints(displayedPoints, colorsRef.current.risks));
-      fitAllPoints(map, displayedPoints);
     }
+    // Cambiar la selección no vuelve a encuadrar toda la capa comunal.
+    if (layerChanged) fitAllPoints(map, displayedPoints);
     if (pointsChanged || previous.selectedId !== selectedId || previous.selectionRevision !== selectionRevision || previous.scopeLabel !== scopeLabel) {
       updateSelection(map, popup, snapshot);
     }
-  }, [displayedPoints, selectedId, selectionRevision, scopeLabel, onSelect]);
+    if (zoomOutOnDeselect && previous.selectedId !== null && selectedId === null && !layerChanged) {
+      map.easeTo({ zoom: Math.max(map.getMinZoom(), map.getZoom() - 1), duration: 0 });
+    }
+  }, [points, displayedPoints, selectedId, selectionRevision, scopeLabel, onSelect, zoomOutOnDeselect]);
 
   useEffect(() => {
     const container = containerRef.current;

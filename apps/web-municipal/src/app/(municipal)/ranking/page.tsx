@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { RankingView } from "../../../components/Ranking/RankingView";
+import { QueryState } from "../../../components/UI/QueryState";
 
 export const metadata: Metadata = {
   title: "Ranking de prioridades · ALERVI",
@@ -7,5 +9,9 @@ export const metadata: Metadata = {
 };
 
 export default function RankingPage() {
-  return <RankingView />;
+  return (
+    <Suspense fallback={<QueryState state="loading" title="Preparando filtros del ranking" description="Leyendo el contexto de la consulta desde la URL." />}>
+      <RankingView />
+    </Suspense>
+  );
 }

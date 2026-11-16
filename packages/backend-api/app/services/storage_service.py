@@ -11,6 +11,7 @@ Procesamiento seguro de fotografías de inspección técnica:
 import io
 import logging
 import uuid
+from pathlib import Path
 from typing import Optional, Tuple
 
 import httpx
@@ -126,8 +127,10 @@ def upload_photo_to_supabase(
     public_url = f"{base_url}/storage/v1/object/public/{bucket}/{storage_path}"
     tamano_bytes = len(file_bytes)
 
-    # Si se cuenta con credenciales de Supabase, realizar la subida vía REST API
+    # Sin credenciales no existe una subida: nunca devolver una URL de éxito ficticia.
     api_key = settings.supabase_key
+    if not api_key or not settings.supabase_url:
+        raise RuntimeError("Supabase Storage no está configurado.")
     if api_key:
         upload_url = f"{base_url}/storage/v1/object/{bucket}/{storage_path}"
         headers = {
@@ -162,3 +165,63 @@ def upload_photo_to_supabase(
             ) from ex
 
     return storage_path, public_url, tamano_bytes
+
+
+def local_photo_path(storage_path: str) -> Path:
+    """Restringe el acceso local a los UUID y formatos generados por el servidor."""
+    name = Path(storage_path)
+    if name.name != storage_path or name.suffix not in (".jpg", ".png"):
+        raise ValueError("Ruta de fotografía inválida")
+    try:
+        if str(uuid.UUID(name.stem)) != name.stem:
+            raise ValueError("UUID inválido")
+    except ValueError as exc:
+        raise ValueError("Ruta de fotografía inválida") from exc
+    return Path(settings.photo_storage_directory) / storage_path
+
+
+def photo_url(storage_path: str) -> str:
+    if settings.photo_storage_backend == "local":
+        local_photo_path(storage_path)
+        return f"{settings.photo_storage_public_base_url.rstrip('/')}/storage/fichas/{storage_path}"
+    return f"{settings.supabase_url.rstrip('/')}/storage/v1/object/public/{settings.supabase_storage_bucket}/{storage_path}"
+
+
+def upload_photo(
+    file_bytes: bytes, extension: str, mime_type: str
+) -> Tuple[str, str, int]:
+    """Almacena bytes en el proveedor seleccionado explícitamente, sin respaldo implícito."""
+    if settings.photo_storage_backend == "supabase":
+        return upload_photo_to_supabase(file_bytes, extension, mime_type)
+
+    storage_path = f"{uuid.uuid4()}.{extension}"
+    destination = local_photo_path(storage_path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    created = False
+    try:
+        with destination.open("xb") as output:
+            created = True
+            output.write(file_bytes)
+    except OSError:
+        if created:
+            destination.unlink(missing_ok=True)
+        raise
+    return storage_path, photo_url(storage_path), len(file_bytes)
+
+
+def delete_photo(storage_path: str) -> None:
+    """Compensa una subida si falla la transacción de metadatos."""
+    if settings.photo_storage_backend == "local":
+        local_photo_path(storage_path).unlink(missing_ok=True)
+        return
+    if not settings.supabase_key:
+        raise RuntimeError("Supabase Storage no está configurado.")
+    with httpx.Client(timeout=10.0) as client:
+        response = client.delete(
+            f"{settings.supabase_url.rstrip('/')}/storage/v1/object/{settings.supabase_storage_bucket}/{storage_path}",
+            headers={
+                "Authorization": f"Bearer {settings.supabase_key}",
+                "apikey": settings.supabase_key,
+            },
+        )
+        response.raise_for_status()

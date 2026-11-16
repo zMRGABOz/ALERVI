@@ -27,6 +27,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 try:
     from sqlalchemy.orm import Session
@@ -35,7 +36,7 @@ except ImportError:
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import get_current_user, require_admin
+from app.core.security import get_current_user, require_admin, require_inspector
 from app.schemas.api_models import (
     AlertCheckRequest,
     AlertCheckResponse,
@@ -56,12 +57,13 @@ from app.schemas.api_models import (
     PonderacionesUpdateRequest,
     PuntoCriticoTecnicoDetail,
     RankingResponse,
+    ResumenInspeccionesResponse,
     UsuarioCreateRequest,
     UsuarioListResponse,
     UsuarioResponse,
     UsuarioUpdateRequest,
 )
-from app.services import crud_service, spatial_service
+from app.services import crud_service, spatial_service, storage_service
 
 app = FastAPI(
     title="ALERVI System API (Web DSS & Mobile Citizen)",
@@ -106,6 +108,24 @@ async def root():
         "message": "ALERVI API esta corriendo",
         "docs": "/docs",
     }
+
+
+@app.get("/storage/fichas/{filename}", include_in_schema=False)
+def get_local_photo(filename: str):
+    """Las evidencias locales usan URLs UUID, igual que el bucket público configurado."""
+    if settings.photo_storage_backend != "local":
+        raise HTTPException(404, "Fotografía no encontrada.")
+    try:
+        path = storage_service.local_photo_path(filename)
+    except ValueError:
+        raise HTTPException(404, "Fotografía no encontrada.")
+    if not path.is_file():
+        raise HTTPException(404, "Fotografía no encontrada.")
+    return FileResponse(
+        path,
+        media_type="image/png" if path.suffix == ".png" else "image/jpeg",
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
 
 
 # ==============================================================================
@@ -281,9 +301,10 @@ def get_ranking(
     periodo_fin: Optional[int] = Query(
         None, description="Año de término del rango temporal analizado"
     ),
-    limit: Optional[int] = Query(10, description="Cantidad de puntos a retornar"),
-    offset: Optional[int] = Query(0, description="Desplazamiento para paginación"),
+    limit: int = Query(10, ge=1, le=500, description="Cantidad de puntos a retornar"),
+    offset: int = Query(0, ge=0, description="Desplazamiento para paginación"),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Ranking ordenado de puntos con su índice; filtros por comuna y período (RF-3)."""
     if anio is not None:
@@ -331,6 +352,7 @@ async def get_detalle_punto_tecnico(
         ..., description="Identificador único del punto crítico", examples=[101]
     ),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Detalle del punto, desglose de factores y explicación del índice (RF-3)."""
     detalle = spatial_service.obtener_detalle_punto(db, id_punto)
@@ -355,6 +377,7 @@ async def get_detalle_punto_tecnico(
 async def list_factores_riesgo(
     solo_activos: bool = Query(True, description="Retornar solo factores activos"),
     db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
 ):
     """Configura factores de riesgo y ponderaciones del índice de priorización (RF-4)."""
     return crud_service.listar_factores_riesgo(db, solo_activos=solo_activos)
@@ -430,7 +453,9 @@ async def update_factor_riesgo(
     summary="Consultar ponderaciones vigentes del índice",
     include_in_schema=False,
 )
-async def get_ponderaciones_vigentes(db: Session = Depends(get_db)):
+async def get_ponderaciones_vigentes(
+    db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)
+):
     """Retorna la configuración activa de pesos del índice multicriterio (RF-4, RB-8)."""
     return crud_service.obtener_ponderaciones()
 
@@ -462,6 +487,21 @@ async def update_ponderaciones(
 # ==============================================================================
 # 8. FICHAS DE INSPECCIÓN TÉCNICA (RF-5, RF-6, RF-7, RB-9 a RB-12)
 # ==============================================================================
+@app.get(
+    "/api/v1/inspections/resumen",
+    response_model=ResumenInspeccionesResponse,
+    status_code=status.HTTP_200_OK,
+    tags=["Fichas de Inspección"],
+    summary="Consultar el total de inspecciones registradas",
+)
+def get_resumen_inspecciones(
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Total global para el resumen municipal, disponible para Inspector y Administrador."""
+    return crud_service.obtener_resumen_inspecciones(db)
+
+
 @app.post(
     "/api/v1/inspections",
     response_model=FichaInspeccionResponse,
@@ -472,7 +512,7 @@ async def update_ponderaciones(
 async def create_ficha_inspeccion(
     payload: FichaInspeccionCreateRequest,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_inspector),
 ):
     return crud_service.crear_ficha_inspeccion(db, payload, current_user=current_user)
 
@@ -510,7 +550,7 @@ async def update_ficha_inspeccion(
     id_ficha: int = Path(...),
     payload: FichaInspeccionUpdateRequest = ...,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_inspector),
 ):
     """Actualiza observaciones de una ficha existente de autoría propia (RF-7, RB-11)."""
     f = crud_service.actualizar_ficha_inspeccion(
@@ -543,23 +583,19 @@ async def upload_foto_inspeccion(
     id_ficha: int = Path(
         ..., description="Identificador único de la ficha de inspección"
     ),
-    foto: Optional[UploadFile] = File(
-        None, description="Archivo binario de imagen (JPEG o PNG, máx 5 MB)."
+    foto: UploadFile = File(
+        ..., description="Archivo binario de imagen (JPEG o PNG, máx 5 MB)."
     ),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_inspector),
 ):
     """
     Adjunta evidencia fotográfica a una ficha de inspección (RF-5, RB-10, RNF-S-7).
     Sanitiza metadatos EXIF (coordenadas GPS) y guarda en bucket 'fichas' bajo UUID único.
     """
-    file_bytes = None
-    filename = ""
-    content_type = ""
-    if foto is not None:
-        file_bytes = await foto.read()
-        filename = foto.filename or ""
-        content_type = foto.content_type or ""
+    file_bytes = await foto.read(storage_service.MAX_FILE_SIZE_BYTES + 1)
+    filename = foto.filename or ""
+    content_type = foto.content_type or ""
 
     return crud_service.agregar_fotografia_ficha(
         db,

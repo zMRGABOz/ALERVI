@@ -209,26 +209,15 @@ def test_jwt_bypass_tokens_rechazados(client: TestClient):
 
 
 @pytest.mark.integration
-def test_rb11_inspector_no_puede_editar_ficha_ajena(client: TestClient):
+def test_rb11_inspector_no_puede_editar_ficha_ajena(
+    client: TestClient, other_auth_headers: dict
+):
     """RB-11: Verifica que un inspector autenticado no pueda editar la ficha de otro inspector (HTTP 403)."""
-    from app.core.security import create_access_token
-
-    # Token para un inspector ajeno (id_usuario = 99)
-    otro_inspector_token = create_access_token(
-        {
-            "sub": "99",
-            "id_usuario": 99,
-            "correo": "otro_inspector@alervi.test",
-            "rol": "inspector",
-        }
-    )
-    headers = {"Authorization": f"Bearer {otro_inspector_token}"}
-
-    # Intentar editar ficha 101 (cuya autoría en mock/BD pertenece al inspector 2)
+    # La ficha inicial pertenece al inspector 2 y el usuario autenticado es el 99.
     response = client.patch(
         "/api/v1/inspections/1",
         json={"notas": "Intento de edición no autorizada por otro inspector"},
-        headers=headers,
+        headers=other_auth_headers,
     )
     assert response.status_code == 403
     assert "RB-11" in response.json()["detail"] or "autor" in response.json()["detail"]
@@ -277,7 +266,7 @@ def test_bloqueo_temporal_tras_5_intentos_fallidos_y_auditoria(
     from app.services.crud_service import reset_login_attempts
 
     correo_test = f"bloqueo_{uuid.uuid4().hex[:8]}@alervi.test"
-    # Crear usuario en BD o fallback
+    # Crear una cuenta real en la base de pruebas.
     res_crear = client.post(
         "/api/v1/usuarios",
         json={
@@ -429,10 +418,6 @@ def test_tc12_ponderaciones_sin_permiso_rechazadas(
 
 
 @pytest.mark.integration
-@pytest.mark.xfail(
-    strict=False,
-    reason="TC-17 / RBAC: POST /api/v1/inspections aún no restringe la creación al rol inspector",
-)
 def test_tc17_creacion_ficha_por_administrador_denegada(
     client: TestClient, admin_auth_headers: dict
 ):

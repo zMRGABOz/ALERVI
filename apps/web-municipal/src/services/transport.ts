@@ -1,6 +1,7 @@
 import { canUseDemoSession } from "../config/demo-session";
 import { env } from "../config/env";
 import type { Session } from "../types/session";
+import { invalidateSession } from "./session-invalidation";
 
 export type ApiTransport = (
   url: URL,
@@ -19,6 +20,9 @@ export class TransportSessionError extends Error {
 
 export const transport: ApiTransport = async (url, options, session) => {
   session?.signal.throwIfAborted();
+  const signal = options.signal && session
+    ? AbortSignal.any([options.signal, session.signal])
+    : options.signal ?? session?.signal;
 
   const headers = new Headers(options.headers);
   const authorization = headers.get("Authorization");
@@ -43,7 +47,7 @@ export const transport: ApiTransport = async (url, options, session) => {
       );
     }
     const { mockTransport } = await import("../mocks/transport");
-    return mockTransport(url, options, session);
+    return mockTransport(url, { ...options, signal }, session);
   }
 
   if (session?.source === "demo") {
@@ -66,10 +70,13 @@ export const transport: ApiTransport = async (url, options, session) => {
       );
     }
     if (!Number.isFinite(session.expiresAt) || session.expiresAt <= Date.now()) {
+      invalidateSession(session);
       throw new TransportSessionError("La sesión ha expirado.", "SESION_EXPIRADA");
     }
     headers.set("Authorization", `Bearer ${session.accessToken}`);
   }
 
-  return fetch(url, { ...options, headers });
+  const response = await fetch(url, { ...options, headers, signal });
+  if (session?.source === "real" && response.status === 401) invalidateSession(session);
+  return response;
 };

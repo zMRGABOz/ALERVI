@@ -113,6 +113,8 @@ function createHttpError(status: number, body: unknown): ApiError {
     typeof body.mensaje === "string" &&
     body.mensaje.trim()
       ? body.mensaje
+      : status < 500 && isRecord(body) && typeof body.detail === "string" && body.detail.trim()
+        ? body.detail
       : getHttpMessage(status);
 
   return new ApiError(message, {
