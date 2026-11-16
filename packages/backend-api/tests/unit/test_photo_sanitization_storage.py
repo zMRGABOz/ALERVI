@@ -17,6 +17,7 @@ from fastapi import HTTPException
 from PIL import Image, PngImagePlugin
 
 from app.core.config import settings
+from app.models.db_models import Fotografia
 from app.services import crud_service, storage_service
 
 
@@ -148,9 +149,16 @@ def test_upload_photo_to_supabase_uuid_and_bucket_naming():
     raw_jpeg = _create_jpeg_with_gps()
     clean_bytes, ext, mime = storage_service.sanitize_image_exif(raw_jpeg)
 
-    storage_path, public_url, size = storage_service.upload_photo_to_supabase(
-        clean_bytes, ext, mime
-    )
+    with (
+        patch("httpx.Client.post") as mock_post,
+        patch.object(settings, "supabase_key", "test-service-key"),
+    ):
+        mock_post.return_value.status_code = 201
+        storage_path, public_url, size = storage_service.upload_photo_to_supabase(
+            clean_bytes, ext, mime
+        )
+        mock_post.assert_called_once()
+        assert mock_post.call_args.kwargs["content"] == clean_bytes
 
     # Validar que storage_path es '<uuid>.jpg'
     stem, extension = storage_path.rsplit(".", 1)
@@ -204,47 +212,45 @@ def test_upload_photo_to_supabase_rest_call():
         assert call_headers["Content-Type"] == "image/jpeg"
 
 
-def test_crud_agregar_fotografia_limite_3_fotos_rb10():
+def test_crud_agregar_fotografia_limite_3_fotos_rb10(db_session, inspector_user):
     """Verifica que intentar agregar una 4ta fotografía sea rechazado con 400 (RB-10)."""
-    mock_db = MagicMock()
-    # Simular que ya existen 3 fotografías asociadas a la ficha
-    mock_db.query.return_value.filter.return_value.count.return_value = 3
+    for _ in range(3):
+        crud_service.agregar_fotografia_ficha(
+            db_session,
+            id_ficha=1,
+            file_bytes=_create_jpeg_with_gps(),
+            current_user=inspector_user,
+        )
 
     with pytest.raises(HTTPException) as exc_info:
         crud_service.agregar_fotografia_ficha(
-            mock_db, id_ficha=10, file_bytes=_create_jpeg_with_gps()
+            db_session,
+            id_ficha=1,
+            file_bytes=_create_jpeg_with_gps(),
+            current_user=inspector_user,
         )
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == "La ficha admite un máximo de 3 fotografías."
+    assert db_session.query(Fotografia).filter(Fotografia.id_ficha == 1).count() == 3
 
 
-def test_crud_agregar_fotografia_rb11_inspector_ajeno_rechazado():
+def test_crud_agregar_fotografia_rb11_inspector_ajeno_rechazado(db_session):
     """Verifica que un inspector que no es autor no pueda adjuntar fotos (RB-11)."""
-    mock_db = MagicMock()
-    mock_ficha = MagicMock()
-    mock_ficha.id_ficha = 10
-    mock_ficha.id_usuario = 2  # Inspector autor es el 2
-    mock_ficha.usuario.correo = "inspector@alervi.test"
-    mock_db.query.return_value.filter.return_value.first.return_value = mock_ficha
-    mock_db.query.return_value.filter.return_value.count.return_value = 1
-
     # Inspector diferente intentando adjuntar foto
     foreign_user = {"id_usuario": 99, "correo": "otro@alervi.test", "rol": "inspector"}
 
     with pytest.raises(HTTPException) as exc_info:
         crud_service.agregar_fotografia_ficha(
-            mock_db,
-            id_ficha=10,
+            db_session,
+            id_ficha=1,
             file_bytes=_create_jpeg_with_gps(),
             current_user=foreign_user,
         )
 
     assert exc_info.value.status_code == 403
-    assert (
-        "solo el inspector autor de la ficha puede adjuntar fotos"
-        in exc_info.value.detail
-    )
+    assert "autor" in exc_info.value.detail.lower()
+    assert "RB-11" in exc_info.value.detail
 
 
 def test_endpoint_upload_foto_multipart_integration(client, auth_headers):
@@ -281,6 +287,14 @@ def test_endpoint_upload_foto_multipart_integration(client, auth_headers):
     assert data["tamano_bytes"] > 0
     assert data["fecha_subida"] is not None
 
+    stored = storage_service.local_photo_path(data["ruta"])
+    assert stored.is_file()
+    download = client.get(data["url"])
+    assert download.status_code == 200
+    assert download.content == stored.read_bytes()
+    with Image.open(io.BytesIO(download.content)) as image:
+        assert len(image.getexif()) == 0
+
 
 def test_endpoint_upload_foto_alias_route(client, auth_headers):
     """Verifica que el alias sin prefijo /inspections/{id}/fotos también funcione."""
@@ -292,7 +306,8 @@ def test_endpoint_upload_foto_alias_route(client, auth_headers):
         "factores_riesgo_ids": [1],
     }
     res_ficha = client.post("/api/v1/inspections", json=payload, headers=auth_headers)
-    id_ficha = res_ficha.json()["id_ficha"] if res_ficha.status_code == 201 else 15
+    assert res_ficha.status_code == 201
+    id_ficha = res_ficha.json()["id_ficha"]
 
     raw_png = _create_png_with_metadata()
     files = {"foto": ("captura.png", raw_png, "image/png")}
@@ -308,7 +323,7 @@ def test_endpoint_upload_foto_alias_route(client, auth_headers):
 def test_endpoint_upload_foto_rechaza_formato_invalido(client, auth_headers):
     """Verifica rechazo con 400 si se envía un archivo no admitido (ej. texto plano)."""
     files = {"foto": ("documento.txt", b"Texto no binario de imagen", "text/plain")}
-    res = client.post("/api/v1/inspections/15/fotos", files=files, headers=auth_headers)
+    res = client.post("/api/v1/inspections/1/fotos", files=files, headers=auth_headers)
     assert res.status_code == 400
     assert "Solo se admiten formatos JPEG o PNG" in res.json()["detail"]
 
@@ -336,33 +351,25 @@ def test_endpoint_upload_foto_rechaza_archivo_vacio_0_bytes(client, auth_headers
 
 def test_endpoint_upload_foto_ficha_inexistente_404(client, auth_headers):
     """Verifica que subir una foto a una ficha inexistente devuelva 404 Not Found en BD activa."""
-    from app.core.database import get_db
-    from app.main import app
-
-    mock_db = MagicMock()
-    mock_db.query.return_value.filter.return_value.first.return_value = None
-
-    app.dependency_overrides[get_db] = lambda: mock_db
-    try:
-        raw_jpeg = _create_jpeg_with_gps()
-        files = {"foto": ("evidencia.jpg", raw_jpeg, "image/jpeg")}
-        res = client.post(
-            "/api/v1/inspections/999999/fotos", files=files, headers=auth_headers
-        )
-        assert res.status_code == 404
-        assert "no encontrada" in res.json()["detail"].lower()
-    finally:
-        app.dependency_overrides.pop(get_db, None)
+    raw_jpeg = _create_jpeg_with_gps()
+    files = {"foto": ("evidencia.jpg", raw_jpeg, "image/jpeg")}
+    res = client.post(
+        "/api/v1/inspections/999999/fotos", files=files, headers=auth_headers
+    )
+    assert res.status_code == 404
+    assert "no encontrada" in res.json()["detail"].lower()
 
 
-def test_crud_agregar_fotografia_ficha_inexistente_raises_404():
+def test_crud_agregar_fotografia_ficha_inexistente_raises_404(
+    db_session, inspector_user
+):
     """Verifica que si la ficha no existe en BD real, crud_service levante 404."""
-    mock_db = MagicMock()
-    mock_db.query.return_value.filter.return_value.first.return_value = None
-
     with pytest.raises(HTTPException) as exc_info:
         crud_service.agregar_fotografia_ficha(
-            mock_db, id_ficha=999999, file_bytes=_create_jpeg_with_gps()
+            db_session,
+            id_ficha=999999,
+            file_bytes=_create_jpeg_with_gps(),
+            current_user=inspector_user,
         )
 
     assert exc_info.value.status_code == 404
@@ -405,12 +412,15 @@ def test_crud_agregar_fotografia_supabase_error_returns_502(client, auth_headers
     raw_jpeg = _create_jpeg_with_gps()
     files = {"foto": ("evidencia.jpg", raw_jpeg, "image/jpeg")}
 
-    with patch(
-        "app.services.storage_service.upload_photo_to_supabase",
-        side_effect=IOError("Supabase Storage timeout de conexión"),
+    with (
+        patch.object(settings, "photo_storage_backend", "supabase"),
+        patch(
+            "app.services.storage_service.upload_photo_to_supabase",
+            side_effect=IOError("Supabase Storage timeout de conexión"),
+        ),
     ):
         res = client.post(
             f"/api/v1/inspections/{id_ficha}/fotos", files=files, headers=auth_headers
         )
         assert res.status_code == 502
-        assert "servicio de almacenamiento" in res.json()["detail"].lower()
+        assert "proveedor configurado" in res.json()["detail"].lower()
