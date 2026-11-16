@@ -356,6 +356,24 @@ class PonderacionesUpdateRequest(BaseModel):
 # ============================================================================
 # 8. FICHAS DE INSPECCIÓN TÉCNICA Y FOTOS (tablas `ficha_inspeccion`, `registra`, `fotografia`)
 # ============================================================================
+class PuntoInspeccionesResumen(BaseModel):
+    id_punto: int = Field(..., gt=0, example=549)
+    total_fichas_inspeccion: int = Field(..., gt=0, example=3)
+
+
+class ResumenInspeccionesResponse(BaseModel):
+    total_fichas_inspeccion: int = Field(
+        ...,
+        ge=0,
+        example=12,
+        description="Total global de fichas registradas, sin filtros del ranking.",
+    )
+    puntos: List[PuntoInspeccionesResumen] = Field(
+        default_factory=list,
+        description="Puntos con fichas, ordenados por cantidad descendente e ID ascendente.",
+    )
+
+
 class FotografiaResponse(BaseModel):
     id_foto: int = Field(..., example=28)
     id_ficha: int = Field(..., example=15)
@@ -369,7 +387,7 @@ class FotografiaResponse(BaseModel):
 
 class FichaInspeccionCreateRequest(BaseModel):
     id_punto: int = Field(
-        ..., example=101, description="ID del punto crítico inspeccionado"
+        ..., gt=0, example=101, description="ID del punto crítico inspeccionado"
     )
     fecha_visita: str = Field(
         ...,
@@ -391,13 +409,14 @@ class FichaInspeccionCreateRequest(BaseModel):
     @field_validator("fecha_visita")
     @classmethod
     def validar_fecha_no_futura(cls, v: str) -> str:
-        if v:
-            try:
-                fv = date.fromisoformat(v)
-            except ValueError:
-                raise ValueError("Formato de fecha inválido. Se espera YYYY-MM-DD")
-            if fv > date.today():
-                raise ValueError("La fecha de visita no puede ser una fecha futura")
+        try:
+            fv = date.fromisoformat(v)
+        except ValueError:
+            raise ValueError("Formato de fecha inválido. Se espera YYYY-MM-DD")
+        if v != fv.isoformat():
+            raise ValueError("Formato de fecha inválido. Se espera YYYY-MM-DD")
+        if fv > date.today():
+            raise ValueError("La fecha de visita no puede ser una fecha futura")
         return v
 
 
@@ -413,10 +432,12 @@ class FichaInspeccionUpdateRequest(BaseModel):
     @field_validator("fecha_visita")
     @classmethod
     def validar_fecha_no_futura(cls, v: Optional[str]) -> Optional[str]:
-        if v:
+        if v is not None:
             try:
                 fv = date.fromisoformat(v)
             except ValueError:
+                raise ValueError("Formato de fecha inválido. Se espera YYYY-MM-DD")
+            if v != fv.isoformat():
                 raise ValueError("Formato de fecha inválido. Se espera YYYY-MM-DD")
             if fv > date.today():
                 raise ValueError("La fecha de visita no puede ser una fecha futura")

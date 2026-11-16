@@ -1,21 +1,29 @@
-import type { components, operations } from "../types/api.generated";
-import { apiRequest, type AuthenticatedRequestOptions } from "./api";
+import type { operations } from "../types/api.generated";
+import { ApiError, apiRequest, type AuthenticatedRequestOptions } from "./api";
+import { normalizePointDetail, type PointDetail } from "./point-detail-response";
+import { queryKey, readCachedQuery } from "./query-cache";
 
 type PointId =
   operations["getDetallePuntoTecnico"]["parameters"]["path"]["id_punto"];
-export type PointDetail = components["schemas"]["PuntoCriticoTecnicoDetail"];
+export type { PointDetail } from "./point-detail-response";
 
-export function getPointDetail(
+export async function getPointDetail(
   idPunto: PointId,
   options: AuthenticatedRequestOptions,
 ): Promise<PointDetail> {
-  return apiRequest<PointDetail>(
-    `/api/v1/puntos/${encodeURIComponent(String(idPunto))}`,
-    {
-      auth: "required",
-      session: options.session,
-      signal: options.signal,
-      timeoutMs: options.timeoutMs,
-    },
-  );
+  if (!Number.isSafeInteger(idPunto) || idPunto < 1) {
+    throw new ApiError("El identificador del punto debe ser un entero positivo válido.", { status: 400, code: "PUNTO_ID_INVALIDO" });
+  }
+  return readCachedQuery(queryKey("point-detail", { id: idPunto }), options, async (signal) => {
+    const response = await apiRequest<unknown>(
+      `/api/v1/puntos/${encodeURIComponent(String(idPunto))}`,
+      {
+        auth: "required",
+        session: options.session,
+        signal,
+        timeoutMs: options.timeoutMs,
+      },
+    );
+    return normalizePointDetail(response, idPunto);
+  });
 }

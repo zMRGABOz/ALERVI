@@ -5,6 +5,7 @@ export type IconName =
   | "summary"
   | "ranking"
   | "point"
+  | "search"
   | "inspection"
   | "history"
   | "user"
@@ -23,6 +24,7 @@ const paths: Record<IconName, string> = {
   summary: "M3 3h7v7H3Zm11 0h7v7h-7ZM3 14h7v7H3Zm11 0h7v7h-7Z",
   ranking: "M5 20v-6m7 6V4m7 16V9M3 20h18",
   point: "M20 10c0 6-8 11-8 11S4 16 4 10a8 8 0 1 1 16 0ZM15 10a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z",
+  search: "m21 21-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z",
   inspection: "M9 4H6a2 2 0 0 0-2 2v14h16V6a2 2 0 0 0-2-2h-3M9 2h6v4H9Zm3 8v7m-3-3h6",
   history: "M3 11a9 9 0 1 1 2 7M3 4v7h7m2-4v5l3 2",
   user: "M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0ZM4 21v-2a8 8 0 0 1 16 0v2",

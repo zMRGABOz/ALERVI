@@ -7,19 +7,21 @@
 BEGIN;
 
 -- Contraseña local para el rol de la API
-ALTER ROLE alervi_app PASSWORD 'alervi_app_dev_2026';
+ALTER ROLE alervi_app PASSWORD :'app_password';
 
 -- USUARIO
 -- Clave de ambas: Dev-2026-ALERVI (Se guarda el hash)
 INSERT INTO usuario (correo, hash_clave, rol) VALUES
     ('admin@alervi.test', '$2b$12$FftZVwmTG1VxkseqE1Wy.OT1qUesa6jeaq4Sb.IsJAzKSMhV2NtYO', 'administrador'),
-    ('inspector@alervi.test', '$2b$12$FftZVwmTG1VxkseqE1Wy.OT1qUesa6jeaq4Sb.IsJAzKSMhV2NtYO', 'inspector');
+    ('inspector@alervi.test', '$2b$12$FftZVwmTG1VxkseqE1Wy.OT1qUesa6jeaq4Sb.IsJAzKSMhV2NtYO', 'inspector')
+ON CONFLICT (correo) DO NOTHING;
 
 INSERT INTO factor_riesgo (nombre, descripcion) VALUES
     ('Poca visibilidad',        'Obstáculos o geometría que limitan la visión del conductor'),
     ('Falta de señalización',   'Señales o demarcación ausentes, dañadas o poco visibles'),
     ('Exceso de velocidad',     'Velocidad de circulación observada superior a la segura'),
     ('Cruce peatonal inseguro', 'Cruce sin protección adecuada para peatones'),
-    ('Iluminación deficiente',  'Iluminación insuficiente en horario nocturno');
+    ('Iluminación deficiente',  'Iluminación insuficiente en horario nocturno')
+ON CONFLICT (nombre) DO NOTHING;
 
 COMMIT;

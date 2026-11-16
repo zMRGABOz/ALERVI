@@ -1,11 +1,17 @@
-import { initialRankingQuery } from "../../config/ranking";
+import type { useInspectionSummary } from "../../hooks/useInspectionSummary";
 import type { useRanking } from "../../hooks/useRanking";
 import { Icon } from "../UI/Icon";
 import { MetricCard } from "../UI/MetricCard";
 
 const indexFormatter = new Intl.NumberFormat("es-CL", { maximumFractionDigits: 3 });
 
-export function DashboardMetrics({ query }: { query: ReturnType<typeof useRanking> }) {
+export function DashboardMetrics({ query, inspections, displayedPointCount, pointsLoading, pointsError }: {
+  query: ReturnType<typeof useRanking>;
+  inspections: ReturnType<typeof useInspectionSummary>;
+  displayedPointCount: number | null;
+  pointsLoading: boolean;
+  pointsError: string | null;
+}) {
   const data = query.data;
   const firstPriority = data?.puntos[0];
   const loading = query.status === "loading";
@@ -13,9 +19,9 @@ export function DashboardMetrics({ query }: { query: ReturnType<typeof useRankin
   return (
     <section className="summary-metrics" aria-label="Métricas del resumen municipal">
       <MetricCard
-        label="Prioridades recibidas"
-        value={data ? data.puntos.length : loading ? "Consultando…" : null}
-        description={`Puntos con índice en esta respuesta. Máximo solicitado: ${initialRankingQuery.limit}.`}
+        label="Puntos desplegados"
+        value={pointsLoading ? "Consultando…" : displayedPointCount?.toLocaleString("es-CL") ?? null}
+        description={pointsError ?? "Cantidad de puntos mostrados en el mapa del resumen."}
         icon={<Icon name="point" />}
       />
       <MetricCard
@@ -32,8 +38,8 @@ export function DashboardMetrics({ query }: { query: ReturnType<typeof useRankin
       />
       <MetricCard
         label="Inspecciones registradas"
-        value={null}
-        description="El servicio no entrega un total global de inspecciones."
+        value={inspections.data ? inspections.data.total_fichas_inspeccion : inspections.status === "loading" ? "Consultando…" : null}
+        description={inspections.error ? `${inspections.error.message} Usa Actualizar resumen para reintentar.` : "Total de fichas registradas, sin filtros del ranking."}
         icon={<Icon name="inspection" />}
       />
     </section>

@@ -1,7 +1,10 @@
 "use client";
 
 import { Fragment, useEffect, useRef, type ReactNode } from "react";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { canUseDemoSession } from "../../config/demo-session";
+import { loginHref } from "../../config/routes";
 import { useSession } from "../../hooks/useSession";
 import type { SessionRole } from "../../types/session";
 import { QueryState } from "../UI/QueryState";
@@ -16,6 +19,10 @@ export function RequireSession({
   roles?: readonly SessionRole[];
 }) {
   const { status, session, demoAllowed } = useSession();
+  const router = useRouter();
+  const pathname = usePathname();
+  const search = useSearchParams();
+  const destination = loginHref(`${pathname}${search.size ? `?${search}` : ""}`);
   const previousStatus = useRef(status);
 
   useEffect(() => {
@@ -25,20 +32,27 @@ export function RequireSession({
     previousStatus.current = status;
   }, [status]);
 
+  useEffect(() => {
+    if (status === "anonymous" && !demoAllowed) router.replace(destination);
+  }, [status, demoAllowed, destination, router]);
+
   if (status === "initializing") {
     return <QueryState state="loading" title="Inicializando sesión" description="Comprobando el contexto de acceso municipal." />;
   }
 
   if (!session || (session.source === "demo" && !canUseDemoSession())) {
     return (
-      <QueryState
-        state="empty"
-        icon="user"
-        title={demoAllowed ? "Sesión local cerrada" : "Acceso municipal no disponible"}
-        description={demoAllowed
-          ? "Recarga esta página para restablecer la sesión de demostración local."
-          : "El acceso con credenciales todavía no está disponible en esta versión. La revisión municipal está habilitada en desarrollo local con modo mock."}
-      />
+      <>
+        <QueryState
+          state="empty"
+          icon="user"
+          title={demoAllowed ? "Sesión local cerrada" : "Inicia sesión para continuar"}
+          description={demoAllowed
+            ? "Recarga esta página para restablecer la sesión de demostración local."
+            : "Se requiere una sesión municipal válida para consultar esta pantalla."}
+        />
+        {!demoAllowed && <Link href={destination} className="button-primary">Iniciar sesión</Link>}
+      </>
     );
   }
 
