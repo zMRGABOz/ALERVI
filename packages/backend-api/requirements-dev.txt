@@ -1,0 +1,14 @@
+# ============================================================
+#  ALERVI Backend — Dependencias de Desarrollo, QA y Carga
+# ============================================================
+-r requirements.txt
+
+# -- Testing & Cobertura (RNF-M-1) --
+pytest>=8.0.0
+pytest-cov>=5.0.0
+
+# -- Linter y Formato (RNF-M-2) --
+ruff>=0.6.0
+
+# -- Pruebas de Carga (RNF-R-2) --
+locust>=2.32.0
