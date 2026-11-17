@@ -24,8 +24,15 @@ def test_engine():
     url = os.environ.get("TEST_DATABASE_URL")
     if not url:
         raise pytest.UsageError(
-            "Define TEST_DATABASE_URL con una base PostgreSQL/PostGIS de pruebas."
+            "Define TEST_DATABASE_URL con una base PostgreSQL/PostGIS de pruebas. "
+            "Para desarrollo local (con docker compose up -d db): "
+            "TEST_DATABASE_URL=postgresql://alervi_user:alervi_dev_2026@localhost:5433/alervi_db"
         )
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+psycopg2://", 1)
+    elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
+        url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+
     schema = f"pytest_{uuid.uuid4().hex}"
     engine = create_engine(
         url, connect_args={"options": f"-csearch_path={schema},public"}

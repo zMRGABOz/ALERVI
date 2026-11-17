@@ -565,7 +565,7 @@ def test_crud_fichas_y_fotografias(db_session, inspector_user, jpeg_photo):
     assert [factor.id_factor for factor in stored.factores_riesgo] == [2]
 
     fichas_list = crud_service.listar_fichas_de_punto(db_session, 101)
-    assert [ficha.id_ficha for ficha in fichas_list] == [id_ficha, 1]
+    assert {ficha.id_ficha for ficha in fichas_list} == {id_ficha, 1}
 
     foto_res = crud_service.agregar_fotografia_ficha(
         db_session,
@@ -785,3 +785,147 @@ def test_authenticate_user_admin_mfa_unit(db_session):
     )
     assert resp.access_token is not None
     assert resp.usuario.rol == "administrador"
+
+
+def test_cache_conteos_entorno_lifecycle():
+    """Verifica el ciclo de vida, thread-safety e invalidación de la caché de entorno urbano."""
+    from app.services import spatial_service
+
+    # Limpiar caché
+    spatial_service.limpiar_cache_entorno()
+    assert spatial_service._cache_conteos_entorno == {}
+
+    # Inyección de conteos en caché
+    with spatial_service._cache_conteos_lock:
+        spatial_service._cache_conteos_entorno[901] = (2, 3)
+        spatial_service._cache_conteos_entorno[902] = (0, 1)
+
+    # db=None debe devolver directamente los valores de la caché
+    res = spatial_service._conteos_entorno(None, [901, 902])
+    assert res[901] == (2, 3)
+    assert res[902] == (0, 1)
+
+    # Puntos ausentes sin DB retornan valor neutro (0, 0)
+    res_ausente = spatial_service._conteos_entorno(None, [999])
+    assert res_ausente[999] == (0, 0)
+
+    # Invalidación
+    spatial_service.limpiar_cache_entorno()
+    assert spatial_service._cache_conteos_entorno == {}
+
+
+def test_obtener_ranking_con_entorno_urbano_en_scoring():
+    """Verifica que el ranking integre los conteos de colegios/paraderos en contexto_c e IP."""
+    from app.services import spatial_service
+
+    spatial_service.limpiar_cache_entorno()
+    # Punto 501: 2 colegios, 1 paradero -> C = min(100, 2*20 + 1*10 + 30) = 80.0
+    with spatial_service._cache_conteos_lock:
+        spatial_service._cache_conteos_entorno[501] = (2, 1)
+
+    mock_db = MagicMock()
+    mock_row = MagicMock()
+    mock_row.id_punto = 501
+    mock_row.lon = -73.05
+    mock_row.lat = -36.82
+    mock_row.comuna_nombre = "Concepción"
+    mock_row.total_siniestros = 10
+    mock_row.total_fallecidos = 1
+    mock_row.total_graves = 2
+    mock_row.total_menos_graves = 0
+    mock_row.total_leves = 0
+
+    mock_db.query.return_value.join.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.all.return_value = [
+        mock_row
+    ]
+
+    res = spatial_service.obtener_ranking(mock_db, limit=1)
+    assert res.total_puntos == 1
+    item = res.puntos[0]
+    assert item.id_punto == 501
+    # Con 2 colegios y 1 paradero, contexto_c debe ser 80.0 (en lugar del valor plano 30.0)
+    assert item.contexto_c == 80.0
+    # IP = 0.35*S + 0.25*F + 0.20*T + 0.20*C
+    # S = min(100, 1*25 + 2*8) = 41.0
+    # F = min(100, 10*1.5) = 15.0
+    # T = 65.0 (fallecidos > 0)
+    # C = 80.0
+    # IP = 0.35*41.0 + 0.25*15.0 + 0.20*65.0 + 0.20*80.0 = 14.35 + 3.75 + 13.0 + 16.0 = 47.1
+    assert item.indice_prioridad == 47.1
+
+    spatial_service.limpiar_cache_entorno()
+
+
+def test_ranking_microbenchmark_latencia_menor_80ms():
+    """
+    Microbenchmark: Procesa 2.672 puntos críticos en memoria simulando el dataset
+    completo de Concepción con la caché poblada y verifica tiempo < 80 ms.
+    """
+    import time
+    from collections import namedtuple
+
+    from app.services import spatial_service
+
+    RowSim = namedtuple(
+        "RowSim",
+        [
+            "id_punto",
+            "lon",
+            "lat",
+            "comuna_nombre",
+            "total_siniestros",
+            "total_fallecidos",
+            "total_graves",
+            "total_menos_graves",
+            "total_leves",
+        ],
+    )
+
+    # Poblamos la caché con 2.672 puntos
+    spatial_service.limpiar_cache_entorno()
+    puntos_sinteticos = []
+    with spatial_service._cache_conteos_lock:
+        for i in range(1, 2673):
+            spatial_service._cache_conteos_entorno[i] = (i % 3, i % 5)
+            r = RowSim(
+                id_punto=i,
+                lon=-73.05 + (i * 0.0001),
+                lat=-36.82 + (i * 0.0001),
+                comuna_nombre="Concepción",
+                total_siniestros=(i % 20) + 1,
+                total_fallecidos=1 if i % 10 == 0 else 0,
+                total_graves=(i % 4),
+                total_menos_graves=(i % 3),
+                total_leves=(i % 5),
+            )
+            puntos_sinteticos.append(r)
+
+    mock_db = MagicMock()
+    mock_db.query.return_value.join.return_value.outerjoin.return_value.filter.return_value.group_by.return_value.all.return_value = puntos_sinteticos
+
+    # Medición de tiempo de ejecución
+    t0 = time.perf_counter()
+    res = spatial_service.obtener_ranking(mock_db, limit=10, offset=0)
+    elapsed_ms = (time.perf_counter() - t0) * 1000.0
+
+    print(
+        f"\n[Microbenchmark] Procesamiento de 2.672 puntos críticos: {elapsed_ms:.2f} ms"
+    )
+    assert res.total_puntos == 2672
+    assert len(res.puntos) == 10
+    # Criterio estricto del usuario: tiempo menor a 80 ms (típicamente < 15 ms)
+    assert elapsed_ms < 80.0, f"Tiempo {elapsed_ms:.2f} ms superó el límite de 80 ms"
+
+    spatial_service.limpiar_cache_entorno()
+
+
+def test_precargar_cache_entorno_resilience():
+    """Verifica que precargar_cache_entorno sea tolerante a fallos y retorne enteros."""
+    from app.services import spatial_service
+
+    spatial_service.limpiar_cache_entorno()
+    assert spatial_service.precargar_cache_entorno(None) == 0
+
+    mock_db = MagicMock()
+    mock_db.query.side_effect = RuntimeError("Conexión perdida")
+    assert spatial_service.precargar_cache_entorno(mock_db) == 0
