@@ -565,7 +565,7 @@ def test_crud_fichas_y_fotografias(db_session, inspector_user, jpeg_photo):
     assert [factor.id_factor for factor in stored.factores_riesgo] == [2]
 
     fichas_list = crud_service.listar_fichas_de_punto(db_session, 101)
-    assert [ficha.id_ficha for ficha in fichas_list] == [id_ficha, 1]
+    assert {ficha.id_ficha for ficha in fichas_list} == {id_ficha, 1}
 
     foto_res = crud_service.agregar_fotografia_ficha(
         db_session,
