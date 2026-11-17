@@ -24,7 +24,7 @@ export function PublicPointList({
                 type="button"
                 className="public-point-select"
                 aria-pressed={selected}
-                aria-label={`Seleccionar ${point.nombre_interseccion} en el mapa`}
+                aria-label={`${selected ? "Deseleccionar" : "Seleccionar"} ${point.nombre_interseccion} en el mapa`}
                 onClick={() => onSelect(point.id_punto)}
               >
                 <Icon name="point" size={18} />
@@ -34,7 +34,6 @@ export function PublicPointList({
             <div className="public-point-card__priority">
               <RiskBadge level={point.nivel_riesgo} />
               <span>IP <strong>{formatRiskIndex(point.indice_prioridad)}</strong>/100</span>
-              {selected && <span className="public-point-card__selected">Seleccionado</span>}
             </div>
             <dl className="public-point-counts">
               <div><dt>Siniestros</dt><dd>{point.total_siniestros}</dd></div>

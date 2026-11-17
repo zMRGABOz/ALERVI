@@ -11,8 +11,12 @@ Provee funciones para:
 import logging
 import math
 import threading
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
+from fastapi import HTTPException
+
+from app.core.persistence import persistent
 from app.models.db_models import (
     Comuna,
     ElementoUrbano,
@@ -252,44 +256,41 @@ def _calcular_scoring(
     return ip, nivel, severidad_s, frecuencia_f, tendencia_t, contexto_c
 
 
-def _fallback_capa_riesgo(comuna: Optional[str]) -> GeoJsonFeatureCollection:
-    return GeoJsonFeatureCollection(
-        type="FeatureCollection",
-        features=[
-            GeoJsonFeature(
-                type="Feature",
-                id=101,
-                geometry=GeoJsonPoint(type="Point", coordinates=[-73.0543, -36.8271]),
-                properties=PuntoCriticoProperties(
-                    id_punto=101,
-                    nombre_interseccion="Av. Paicaví con Av. Los Carrera",
-                    comuna=comuna or "Concepción",
-                    nivel_riesgo="CRITICO",
-                    indice_prioridad=89.4,
-                    total_siniestros=48,
-                    total_fallecidos=3,
-                    total_graves=12,
-                    tendencia="ALZA",
-                    resumen_publico="Intersección con alto flujo peatonal y virajes conflictivos frecuentes.",
-                ),
-            )
-        ],
+def _conteos_entorno(db: Session, ids: List[int]) -> dict:
+    """Un solo agregado espacial para compartir el contexto entre capa, ranking y detalle."""
+    rows = (
+        db.query(
+            PuntoCritico.id_punto,
+            func.count(ElementoUrbano.id_elemento)
+            .filter(ElementoUrbano.categoria == "colegio")
+            .label("colegios"),
+            func.count(ElementoUrbano.id_elemento)
+            .filter(ElementoUrbano.categoria == "paradero")
+            .label("paraderos"),
+        )
+        .join(
+            ElementoUrbano,
+            ST_DWithin(
+                cast(ElementoUrbano.geometry, Geography),
+                cast(PuntoCritico.geometry, Geography),
+                150.0,
+            ),
+        )
+        .filter(PuntoCritico.id_punto.in_(ids))
+        .group_by(PuntoCritico.id_punto)
+        .all()
     )
+    return {r.id_punto: (int(r.colegios), int(r.paraderos)) for r in rows}
 
 
+@persistent
 def obtener_capa_riesgo_publico(
     db: Session,
     comuna: Optional[str] = None,
     bbox: Optional[str] = None,
-    limit: int = 500,
+    limit: Optional[int] = None,
 ) -> GeoJsonFeatureCollection:
     """Retorna la capa GeoJSON pública con coordenadas WGS84 y estadísticas agregadas."""
-    if db is None:
-        logger.warning(
-            "DB no disponible (db is None). Usando fallback para capa de riesgo."
-        )
-        return _fallback_capa_riesgo(comuna)
-
     try:
         filtro_comuna = _normalizar_comuna_filtro(comuna)
 
@@ -320,34 +321,41 @@ def obtener_capa_riesgo_publico(
         if bbox:
             try:
                 min_x, min_y, max_x, max_y = [float(c.strip()) for c in bbox.split(",")]
+                if not all(
+                    math.isfinite(v) for v in (min_x, min_y, max_x, max_y)
+                ) or not (
+                    -180 <= min_x <= max_x <= 180 and -90 <= min_y <= max_y <= 90
+                ):
+                    raise ValueError("Límites fuera de rango")
                 envelope = ST_SetSRID(ST_MakeEnvelope(min_x, min_y, max_x, max_y), 4326)
                 query = query.filter(ST_Intersects(PuntoCritico.geometry, envelope))
-            except Exception:
-                pass
+            except ValueError as exc:
+                raise HTTPException(
+                    400, "El bbox debe contener minLon,minLat,maxLon,maxLat válidos."
+                ) from exc
 
-        query = query.order_by(desc("total_siniestros")).limit(limit)
+        # El contrato devuelve la capa comunal, no un Top N parcial del ranking.
+        query = query.order_by(desc("total_siniestros"), PuntoCritico.id_punto).limit(
+            limit
+        )
         rows = query.all()
 
         if not rows:
-            logger.info(
-                "Consulta de capa de riesgo sin registros para filtro '%s'. Usando fallback.",
-                filtro_comuna,
-            )
-            return _fallback_capa_riesgo(comuna)
+            return GeoJsonFeatureCollection(type="FeatureCollection", features=[])
 
         features: List[GeoJsonFeature] = []
         entorno = _conteos_entorno(db, [row.id_punto for row in rows])
 
         for row in rows:
-            col_count, par_count = entorno.get(row.id_punto, (0, 0))
+            colegios, paraderos = entorno.get(row.id_punto, (0, 0))
             ip, nivel, _, _, _, _ = _calcular_scoring(
                 total_siniestros=int(row.total_siniestros),
                 fallecidos=int(row.total_fallecidos),
                 graves=int(row.total_graves),
                 menos_graves=int(row.total_menos_graves),
                 leves=int(row.total_leves),
-                colegios_count=col_count,
-                paraderos_count=par_count,
+                colegios_count=colegios,
+                paraderos_count=paraderos,
             )
 
             nombre_comuna_disp = (
@@ -384,60 +392,11 @@ def obtener_capa_riesgo_publico(
             )
 
         return GeoJsonFeatureCollection(type="FeatureCollection", features=features)
-    except (OperationalError, Exception) as exc:
-        logger.warning(
-            "Error en consulta de capa de riesgo (%s: %s). Activando fallback resiliente.",
-            type(exc).__name__,
-            exc,
-        )
-        return _fallback_capa_riesgo(comuna)
+    except Exception:
+        raise
 
 
-def _fallback_ranking(
-    comuna: str,
-    periodo_inicio: int,
-    periodo_fin: int,
-    periodo: Optional[str] = None,
-) -> RankingResponse:
-    periodo_label = (
-        periodo
-        if periodo is not None
-        else (
-            str(periodo_inicio)
-            if periodo_inicio == periodo_fin
-            else f"{periodo_inicio}-{periodo_fin}"
-        )
-    )
-    return RankingResponse(
-        total_puntos=1,
-        configuracion_version="v1.0-oficial-2026",
-        fecha_calculo="2026-11-03T02:00:00Z",
-        comuna=comuna,
-        periodo=periodo_label,
-        puntos=[
-            PuntoRankingItem(
-                id_punto=101,
-                posicion_ranking=1,
-                nombre_interseccion="Av. Paicaví con Av. Los Carrera",
-                comuna=comuna,
-                latitud=-36.8271,
-                longitud=-73.0543,
-                nivel_riesgo="CRITICO",
-                indice_prioridad=89.4,
-                severidad_s=92.0,
-                frecuencia_f=85.5,
-                tendencia_t=78.0,
-                contexto_c=95.0,
-                total_siniestros=48,
-                total_fallecidos=3,
-                total_graves=12,
-                estado_indice="CALCULADO",
-            )
-        ],
-        puntos_sin_indice=[],
-    )
-
-
+@persistent
 def obtener_ranking(
     db: Session,
     comuna: Optional[str] = "Concepción",
@@ -457,10 +416,6 @@ def obtener_ranking(
         p_ini = periodo_inicio or 2020
         p_fin = periodo_fin or 2025
         periodo_resp = str(p_ini) if p_ini == p_fin else f"{p_ini}-{p_fin}"
-
-    if db is None:
-        logger.warning("DB no disponible (db is None). Usando fallback para ranking.")
-        return _fallback_ranking(comuna_nombre_resp, p_ini, p_fin, periodo_resp)
 
     try:
         filtro_comuna = _normalizar_comuna_filtro(comuna)
@@ -504,16 +459,16 @@ def obtener_ranking(
             return RankingResponse(
                 total_puntos=0,
                 configuracion_version="v1.0-oficial-2026",
-                fecha_calculo="2026-11-09T00:00:00Z",
+                fecha_calculo=datetime.now(timezone.utc).isoformat(),
                 comuna=comuna_nombre_resp,
                 periodo=periodo_resp,
                 puntos=[],
                 puntos_sin_indice=[],
             )
 
+        entorno = _conteos_entorno(db, [row.id_punto for row in rows])
         candidatos = []
         puntos_sin_indice: List[PuntoSinIndiceItem] = []
-        entorno = _conteos_entorno(db, [row.id_punto for row in rows])
 
         for row in rows:
             tot_sin = int(row.total_siniestros or 0)
@@ -521,8 +476,6 @@ def obtener_ranking(
             tot_grav = int(row.total_graves or 0)
             tot_mgrav = int(row.total_menos_graves or 0)
             tot_lev = int(row.total_leves or 0)
-
-            col_count, par_count = entorno.get(row.id_punto, (0, 0))
 
             c_nom = row.comuna_nombre
             nombre_comuna_disp = (
@@ -532,14 +485,15 @@ def obtener_ranking(
             )
 
             if tot_sin > 0:
+                colegios, paraderos = entorno.get(row.id_punto, (0, 0))
                 ip, nivel, s, f, t, c = _calcular_scoring(
                     total_siniestros=tot_sin,
                     fallecidos=tot_fall,
                     graves=tot_grav,
                     menos_graves=tot_mgrav,
                     leves=tot_lev,
-                    colegios_count=col_count,
-                    paraderos_count=par_count,
+                    colegios_count=colegios,
+                    paraderos_count=paraderos,
                 )
                 candidatos.append(
                     (
@@ -623,91 +577,21 @@ def obtener_ranking(
         return RankingResponse(
             total_puntos=total_puntos,
             configuracion_version="v1.0-oficial-2026",
-            fecha_calculo="2026-11-09T00:00:00Z",
+            fecha_calculo=datetime.now(timezone.utc).isoformat(),
             comuna=comuna_nombre_resp,
             periodo=periodo_resp,
             puntos=items,
             puntos_sin_indice=puntos_sin_indice[:limit] if not items else [],
         )
-    except (OperationalError, Exception) as exc:
-        logger.warning(
-            "Error en consulta de ranking (%s: %s). Activando fallback resiliente.",
-            type(exc).__name__,
-            exc,
-        )
-        return _fallback_ranking(comuna_nombre_resp, p_ini, p_fin, periodo_resp)
+    except Exception:
+        raise
 
 
-def _fallback_detalle(id_punto: int) -> PuntoCriticoTecnicoDetail:
-    return PuntoCriticoTecnicoDetail(
-        id_punto=id_punto,
-        nombre_interseccion="Av. Paicaví con Av. Los Carrera",
-        comuna="Concepción",
-        latitud=-36.8271,
-        longitud=-73.0543,
-        nivel_riesgo="CRITICO",
-        indice_prioridad=89.4,
-        estado_indice="CALCULADO",
-        configuracion_pesos_version="v1.0-oficial-2026",
-        desglose_scoring=DesgloseFactoresScoring(
-            formula="IP = w1*S + w2*F + w3*T + w4*C",
-            w_severidad=0.35,
-            severidad_s=92.0,
-            aporte_severidad=32.2,
-            w_frecuencia=0.25,
-            frecuencia_f=85.5,
-            aporte_frecuencia=21.375,
-            w_tendencia=0.20,
-            tendencia_t=78.0,
-            aporte_tendencia=15.6,
-            w_contexto=0.20,
-            contexto_c=95.0,
-            aporte_contexto=19.0,
-        ),
-        historico_anual=[
-            HistoricoSiniestrosAnual(
-                anio=2024,
-                cantidad_siniestros=12,
-                fallecidos=1,
-                graves=3,
-                menos_graves=2,
-                leves=6,
-            )
-        ],
-        entorno_urbano=EntornoUrbanoContexto(
-            buffer_metros=150,
-            total_colegios_buffer=2,
-            total_paraderos_buffer=4,
-            colegio_mas_cercano=ElementoUrbanoCercano(
-                id_elemento=4501,
-                nombre="Liceo Enrique Molina Garmendia",
-                categoria="colegio",
-                distancia_m=85,
-            ),
-            paradero_mas_cercano=ElementoUrbanoCercano(
-                id_elemento=8902,
-                nombre="Paradero Paicaví / Carrera",
-                categoria="paradero",
-                distancia_m=30,
-            ),
-        ),
-        total_fichas_inspeccion=0,
-        explicacion_tecnica="Punto crítico con alta concentración de siniestros.",
-        advertencia_legal="El índice expresa prioridad relativa dentro de Concepción (RB-6).",
-    )
-
-
+@persistent
 def obtener_detalle_punto(
     db: Session, id_punto: int
 ) -> Optional[PuntoCriticoTecnicoDetail]:
     """Obtiene el detalle analítico completo de un punto crítico con entorno urbano."""
-    if db is None:
-        logger.warning(
-            "DB no disponible (db is None). Usando fallback para detalle de punto #%s.",
-            id_punto,
-        )
-        return _fallback_detalle(id_punto)
-
     try:
         punto_row = (
             db.query(
@@ -723,11 +607,7 @@ def obtener_detalle_punto(
         )
 
         if not punto_row:
-            logger.info(
-                "Punto crítico #%s no encontrado en BD. Usando fallback de detalle.",
-                id_punto,
-            )
-            return _fallback_detalle(id_punto)
+            return None
 
         registros = (
             db.query(Registro)
@@ -754,7 +634,10 @@ def obtener_detalle_punto(
         total_mg = sum(r.menos_graves for r in registros)
         total_lev = sum(r.leves for r in registros)
 
-        punto_geog = cast(punto_row.geometry, Geography)
+        punto_geog = cast(
+            ST_SetSRID(ST_MakePoint(float(punto_row.lon), float(punto_row.lat)), 4326),
+            Geography,
+        )
         elem_geog = cast(ElementoUrbano.geometry, Geography)
 
         elementos_cercanos = (
@@ -831,7 +714,7 @@ def obtener_detalle_punto(
             longitud=round(float(punto_row.lon), 6),
             nivel_riesgo=nivel,
             indice_prioridad=ip,
-            estado_indice="CALCULADO",
+            estado_indice="CALCULADO" if registros else "SIN_INDICE_DISPONIBLE",
             configuracion_pesos_version="v1.0-oficial-2026",
             desglose_scoring=DesgloseFactoresScoring(
                 formula="IP = w1*S + w2*F + w3*T + w4*C",
@@ -860,43 +743,15 @@ def obtener_detalle_punto(
             explicacion_tecnica=f"Intersección evaluada con {total_sin} siniestros y {total_fall} fallecidos en serie histórica.",
             advertencia_legal="El índice expresa prioridad relativa dentro de Concepción (RB-6).",
         )
-    except (OperationalError, Exception) as exc:
-        logger.warning(
-            "Error al obtener detalle del punto #%s (%s: %s). Activando fallback resiliente.",
-            id_punto,
-            type(exc).__name__,
-            exc,
-        )
-        return _fallback_detalle(id_punto)
+    except Exception:
+        raise
 
 
-def _fallback_alerta() -> AlertCheckResponse:
-    return AlertCheckResponse(
-        alerta_activa=True,
-        telemetria_status="EVALUADO_CON_ALERTA",
-        alerta=AlertDetail(
-            id_punto=101,
-            nombre_interseccion="Av. Paicaví con Av. Los Carrera",
-            nivel_riesgo="ALTO",
-            distancia_m=112.5,
-            ttc_segundos=8.1,
-            mensaje_visual="⚠️ Zona de Riesgo a 110 m: Paicaví / Carrera",
-            patron_sonoro="BEEP_PRECAUCION",
-            instruccion_seguridad="Reduzca velocidad y preste atención al cruce",
-        ),
-    )
-
-
+@persistent
 def evaluar_alerta_proximidad(
     db: Session, payload: AlertCheckRequest
 ) -> AlertCheckResponse:
     """Evalúa la posición instantánea del vehículo con PostGIS para emitir alerta sonora/visual (RF-8)."""
-    if db is None:
-        logger.warning(
-            "DB no disponible (db is None). Activando fallback de alerta de proximidad."
-        )
-        return _fallback_alerta()
-
     try:
         lat = getattr(payload, "latitude", getattr(payload, "latitud", -36.8271))
         lon = getattr(payload, "longitude", getattr(payload, "longitud", -73.0543))
@@ -1038,11 +893,5 @@ def evaluar_alerta_proximidad(
                 instruccion_seguridad="Reduzca velocidad y preste atención al cruce",
             ),
         )
-    except (OperationalError, Exception) as exc:
-        # RNF-S-8: Jamás registrar coordenadas GPS de telemetría vehicular en logs técnicos
-        logger.warning(
-            "Error al evaluar alerta de proximidad en BD (%s: %s). Activando fallback resiliente.",
-            type(exc).__name__,
-            exc,
-        )
-        return _fallback_alerta()
+    except Exception:
+        raise

@@ -7,7 +7,7 @@ export function RiskLegend() {
       <ul>
         {Object.entries(riskLevels).map(([key, level]) => (
           <li key={key}>
-            <span className="risk-legend__dot" aria-hidden="true" style={{ backgroundColor: level.color, borderColor: level.color }} />
+            <span className="risk-legend__dot" aria-hidden="true" style={{ backgroundColor: level.markerColor, borderColor: level.markerColor }} />
             {level.label}
           </li>
         ))}

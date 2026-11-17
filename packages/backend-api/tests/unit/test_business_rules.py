@@ -65,9 +65,9 @@ def test_tc14_ficha_fecha_futura_rechazada(client: TestClient, auth_headers: dic
 
 
 @pytest.mark.integration
-def test_ponderaciones_factores_suman_uno(client: TestClient):
+def test_ponderaciones_factores_suman_uno(client: TestClient, auth_headers: dict):
     """RB-5 / CI-1: Las ponderaciones vigentes de los factores deben sumar exactamente 1.0."""
-    response = client.get("/api/v1/factores/ponderaciones")
+    response = client.get("/api/v1/factores/ponderaciones", headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
     assert "suma_pesos" in data
@@ -75,10 +75,11 @@ def test_ponderaciones_factores_suman_uno(client: TestClient):
 
 
 @pytest.mark.integration
-def test_tc08_ranking_ordenado_con_filtros(client: TestClient):
+def test_tc08_ranking_ordenado_con_filtros(client: TestClient, auth_headers: dict):
     """TC-08: Ranking retorna puntos ordenados de mayor a menor índice de prioridad."""
     response = client.get(
-        "/api/v1/ranking?comuna=Concepción&periodo_inicio=2020&periodo_fin=2025&limit=10"
+        "/api/v1/ranking?comuna=Concepción&periodo_inicio=2020&periodo_fin=2025&limit=10",
+        headers=auth_headers,
     )
     assert response.status_code == 200
     puntos = response.json()["puntos"]
@@ -88,9 +89,11 @@ def test_tc08_ranking_ordenado_con_filtros(client: TestClient):
 
 
 @pytest.mark.integration
-def test_tc09_explicacion_indice_prioridad_punto(client: TestClient):
+def test_tc09_explicacion_indice_prioridad_punto(
+    client: TestClient, auth_headers: dict
+):
     """TC-09: Detalle del punto incluye factores, ponderaciones y justificación multicriterio."""
-    response = client.get("/api/v1/puntos/101")
+    response = client.get("/api/v1/puntos/101", headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["id_punto"] == 101
@@ -138,10 +141,6 @@ def test_tc11_cambio_ponderaciones_valido(client: TestClient, admin_auth_headers
 
 
 @pytest.mark.integration
-@pytest.mark.xfail(
-    strict=False,
-    reason="TC-12 / RB-5: calibrar_ponderaciones lanza ValueError no capturado en lugar de HTTP 400/422",
-)
 def test_tc12_ponderaciones_suma_distinta_uno_rechazadas(
     client: TestClient, admin_auth_headers: dict
 ):
@@ -161,10 +160,6 @@ def test_tc12_ponderaciones_suma_distinta_uno_rechazadas(
 
 
 @pytest.mark.integration
-@pytest.mark.xfail(
-    strict=False,
-    reason="TC-14 / RB-10: FichaInspeccionCreateRequest aún no exige factor o nota no vacíos simultáneamente",
-)
 def test_tc14_ficha_sin_factor_ni_nota_rechazada(
     client: TestClient, auth_headers: dict
 ):

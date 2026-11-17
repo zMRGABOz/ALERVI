@@ -61,7 +61,15 @@ services:
       DATABASE_URL: "postgresql://${POSTGRES_USER:-alervi_user}:${POSTGRES_PASSWORD:-alervi_dev_2026}@db:5432/${POSTGRES_DB:-alervi_db}"
       BACKEND_SECRET_KEY: ${BACKEND_SECRET_KEY:-dev-secret-key-cambiar-en-prod}
       BACKEND_DEBUG: ${BACKEND_DEBUG:-true}
-      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:3000}
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      ADMIN_MFA_DEFAULT_CODE: ${ADMIN_MFA_DEFAULT_CODE:-482910}
+      ADMIN_TOTP_SECRET: ${ADMIN_TOTP_SECRET:-}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      SUPABASE_STORAGE_BUCKET: ${SUPABASE_STORAGE_BUCKET:-fichas}
+      PHOTO_STORAGE_BACKEND: ${PHOTO_STORAGE_BACKEND:-local}
+      PHOTO_STORAGE_DIRECTORY: /var/lib/alervi/fichas
+      PHOTO_STORAGE_PUBLIC_BASE_URL: ${PHOTO_STORAGE_PUBLIC_BASE_URL:-http://localhost:8000}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     depends_on:
@@ -83,8 +91,11 @@ services:
       start_period: 5s
     volumes:
       - ./packages/backend-api/app:/code/app:ro
+      - fotos:/var/lib/alervi/fichas
     restart: unless-stopped
 
 volumes:
   pgdata:
+    driver: local
+  fotos:
     driver: local

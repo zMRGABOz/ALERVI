@@ -43,6 +43,21 @@ export function assertRankingResponse(value: unknown, query: RankingQuery): asse
     (query.limit !== undefined && value.puntos.length > query.limit)
   ) return invalidRanking();
 
+  // El contrato deja periodo como texto libre. Cuando informa años explícitos,
+  // contrastarlos sin imponer un formato a otras descripciones del servicio.
+  const period = value.periodo.trim().match(/^(\d{4})(?:\s*[-–]\s*(\d{4}))?$/);
+  const start = query.anio ?? query.periodo_inicio;
+  const end = query.anio ?? query.periodo_fin;
+  if (period && (
+    (start !== undefined && Number(period[1]) !== start) ||
+    (end !== undefined && Number(period[2] ?? period[1]) !== end)
+  )) {
+    throw new ApiError(`El servicio informó el período ${value.periodo}, que no coincide con los filtros solicitados. No se pudo confirmar el ranking de esta consulta.`, {
+      status: 200,
+      code: "PERIODO_RANKING_INESPERADO",
+    });
+  }
+
   const comuna = normalizeComuna(value.comuna);
   const ids = new Set<number>();
 

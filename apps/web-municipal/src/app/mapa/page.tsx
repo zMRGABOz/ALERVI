@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { PublicMapShell } from "../../components/Layout/PublicMapShell";
 import { PublicRiskExplorer } from "../../components/Map/PublicRiskExplorer";
 import { Icon } from "../../components/UI/Icon";
+import { QueryState } from "../../components/UI/QueryState";
 
 export const metadata: Metadata = {
   title: "Mapa público de Concepción · ALERVI",
@@ -19,7 +21,9 @@ export default function PublicMapPage() {
         </div>
         <span className="status-badge"><Icon name="map" size={14} /> Acceso público</span>
       </div>
-      <PublicRiskExplorer />
+      <Suspense fallback={<QueryState state="loading" title="Preparando mapa público" description="Leyendo el punto solicitado y el contexto de regreso." />}>
+        <PublicRiskExplorer />
+      </Suspense>
     </PublicMapShell>
   );
 }

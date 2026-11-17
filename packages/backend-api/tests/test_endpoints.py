@@ -22,10 +22,7 @@ import uuid
 
 from fastapi.testclient import TestClient
 
-from app.main import app
 from app.models import Base
-
-client = TestClient(app)
 
 
 def test_orm_models_tables_mapped():
@@ -47,7 +44,7 @@ def test_orm_models_tables_mapped():
         assert table in tables, f"La tabla {table} debe estar mapeada en Base.metadata"
 
 
-def test_cors_header():
+def test_cors_header(client: TestClient):
     """Verifica que el middleware CORS responde al origen http://localhost:3000."""
     response = client.options(
         "/api/v1/publico/riesgo",
@@ -62,7 +59,7 @@ def test_cors_header():
     )
 
 
-def test_auth_login():
+def test_auth_login(client: TestClient):
     """Verifica inicio de sesion (POST /api/v1/auth/login)."""
     payload = {
         "correo": "inspector@alervi.test",
@@ -78,7 +75,7 @@ def test_auth_login():
     assert data["usuario"]["rol"] == "inspector"
 
 
-def test_usuarios_crud(admin_auth_headers: dict):
+def test_usuarios_crud(client: TestClient, admin_auth_headers: dict):
     """Verifica gestion de usuarios (GET, POST, PATCH /api/v1/usuarios)."""
     # Listar
     res_list = client.get("/api/v1/usuarios", headers=admin_auth_headers)
@@ -115,8 +112,8 @@ def test_usuarios_crud(admin_auth_headers: dict):
     assert not res_patch.json()["activo"]
 
 
-def test_cargas_batch(admin_auth_headers: dict):
-    """Verifica ingesta batch de siniestros CONASET (POST /api/v1/cargas)."""
+def test_cargas_batch(client: TestClient, admin_auth_headers: dict):
+    """La ingesta HTTP no implementada informa 501 con instrucciones de carga."""
     payload = {
         "fuente": "CONASET_ARCGIS",
         "anio": 2024,
@@ -130,13 +127,11 @@ def test_cargas_batch(admin_auth_headers: dict):
         ],
     }
     response = client.post("/api/v1/cargas", json=payload, headers=admin_auth_headers)
-    assert response.status_code == 201
-    data = response.json()
-    assert data["anio"] == 2024
-    assert "total_procesados" in data
+    assert response.status_code == 501
+    assert "packages/db/ingest" in response.json()["detail"]
 
 
-def test_publico_riesgo_geojson():
+def test_publico_riesgo_geojson(client: TestClient):
     """Verifica capa de riesgo GeoJSON (GET /api/v1/publico/riesgo)."""
     response = client.get("/api/v1/publico/riesgo?comuna=Concepción")
     assert response.status_code == 200
@@ -151,9 +146,11 @@ def test_publico_riesgo_geojson():
     assert "id_punto" in primera_feature["properties"]
 
 
-def test_ranking():
+def test_ranking(client: TestClient, auth_headers: dict):
     """Verifica calculo de ranking multicriterio (GET /api/v1/ranking)."""
-    response = client.get("/api/v1/ranking?comuna=Concepción&limit=5")
+    response = client.get(
+        "/api/v1/ranking?comuna=Concepción&limit=5", headers=auth_headers
+    )
     assert response.status_code == 200
     data = response.json()
     assert "total_puntos" in data
@@ -161,26 +158,29 @@ def test_ranking():
     assert len(data["puntos"]) > 0
 
     # Consulta con anio específico
-    res_anio = client.get("/api/v1/ranking?anio=2024")
+    res_anio = client.get("/api/v1/ranking?anio=2024", headers=auth_headers)
     assert res_anio.status_code == 200
     assert res_anio.json()["periodo"] == "2024"
 
     # Validación: anio con intervalo contradictorio retorna 400
     res_bad = client.get(
-        "/api/v1/ranking?anio=2024&periodo_inicio=2021&periodo_fin=2023"
+        "/api/v1/ranking?anio=2024&periodo_inicio=2021&periodo_fin=2023",
+        headers=auth_headers,
     )
     assert res_bad.status_code == 400
     assert "contradictorios" in res_bad.json()["detail"]
 
     # Validación: periodo_inicio > periodo_fin retorna 400
-    res_range_bad = client.get("/api/v1/ranking?periodo_inicio=2025&periodo_fin=2020")
+    res_range_bad = client.get(
+        "/api/v1/ranking?periodo_inicio=2025&periodo_fin=2020", headers=auth_headers
+    )
     assert res_range_bad.status_code == 400
     assert "mayor" in res_range_bad.json()["detail"]
 
 
-def test_detalle_punto_tecnico():
+def test_detalle_punto_tecnico(client: TestClient, auth_headers: dict):
     """Verifica detalle tecnico de un punto critico (GET /api/v1/puntos/{id_punto})."""
-    response = client.get("/api/v1/puntos/101")
+    response = client.get("/api/v1/puntos/101", headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["id_punto"] == 101
@@ -188,10 +188,10 @@ def test_detalle_punto_tecnico():
     assert "desglose_scoring" in data
 
 
-def test_factores_y_ponderaciones(admin_auth_headers: dict):
+def test_factores_y_ponderaciones(client: TestClient, admin_auth_headers: dict):
     """Verifica catalogo de factores y calibracion de ponderaciones."""
     # Listar factores
-    res_list = client.get("/api/v1/factores")
+    res_list = client.get("/api/v1/factores", headers=admin_auth_headers)
     assert res_list.status_code == 200
     assert len(res_list.json()) >= 1
 
@@ -220,7 +220,7 @@ def test_factores_y_ponderaciones(admin_auth_headers: dict):
     assert res_patch.status_code == 200
 
     # Consultar ponderaciones
-    res_pond = client.get("/api/v1/factores/ponderaciones")
+    res_pond = client.get("/api/v1/factores/ponderaciones", headers=admin_auth_headers)
     assert res_pond.status_code == 200
     assert res_pond.json()["suma_pesos"] == 1.0
 
@@ -253,7 +253,7 @@ def test_factores_y_ponderaciones(admin_auth_headers: dict):
     assert res_update_pond_alias.json()["w_severidad"] == 0.35
 
 
-def test_inspections_y_fotos(auth_headers: dict):
+def test_inspections_y_fotos(client: TestClient, auth_headers: dict, jpeg_photo):
     """Verifica registro, detalle, edicion y fotos de inspecciones."""
     # Crear ficha valida
     payload = {
@@ -288,7 +288,9 @@ def test_inspections_y_fotos(auth_headers: dict):
 
     # Adjuntar foto (POST /inspections/{id}/fotos)
     res_foto = client.post(
-        f"/api/v1/inspections/{id_ficha}/fotos", headers=auth_headers
+        f"/api/v1/inspections/{id_ficha}/fotos",
+        files={"foto": ("evidencia.jpg", jpeg_photo, "image/jpeg")},
+        headers=auth_headers,
     )
     assert res_foto.status_code == 201
     assert "ruta" in res_foto.json()
@@ -306,25 +308,16 @@ def test_inspections_y_fotos(auth_headers: dict):
     assert isinstance(res_historial_alias.json(), list)
 
 
-def test_alerts_evaluacion():
+def test_alerts_evaluacion(client: TestClient, sample_telemetry_payload: dict):
     """Verifica evaluacion cinematica (POST /api/v1/alerts)."""
-    payload = {
-        "session_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
-        "latitude": -36.8285,
-        "longitude": -73.0550,
-        "speed_mps": 13.88,
-        "heading_degrees": 45.0,
-        "accuracy_m": 8.5,
-        "timestamp": "2026-11-03T02:30:00Z",
-    }
-    response = client.post("/api/v1/alerts", json=payload)
+    response = client.post("/api/v1/alerts", json=sample_telemetry_payload)
     assert response.status_code == 200
     data = response.json()
     assert data["alerta_activa"] is True
     assert data["telemetria_status"] == "EVALUADO_CON_ALERTA"
 
 
-def test_auditoria(admin_auth_headers: dict):
+def test_auditoria(client: TestClient, admin_auth_headers: dict):
     """Verifica consulta de bitacora inmutable (GET /api/v1/auditoria)."""
     response = client.get("/api/v1/auditoria", headers=admin_auth_headers)
     assert response.status_code == 200
