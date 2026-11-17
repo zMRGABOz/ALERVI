@@ -14,6 +14,7 @@ Documentacion interactiva:
     http://localhost:8000/redoc   (ReDoc)
 """
 
+import logging
 from typing import List, Optional
 
 from fastapi import (
@@ -84,6 +85,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+logger = logging.getLogger("alervi.api")
+
+
+@app.on_event("startup")
+def startup_warmup():
+    """Warm-up de conexiones y precarga de caché espacial de entorno urbano (RNF-D-1)."""
+    try:
+        from app.core.database import SessionLocal
+
+        with SessionLocal() as db:
+            total_precargados = spatial_service.precargar_cache_entorno(db)
+            logger.info(
+                "Warm-up completado: caché de entorno urbano inicializada (%d puntos).",
+                total_precargados,
+            )
+    except Exception as exc:
+        logger.warning("No se pudo precargar la caché de entorno en startup: %s", exc)
 
 
 # ==============================================================================

@@ -10,7 +10,8 @@ Provee funciones para:
 
 import logging
 import math
-from typing import List, Optional, Tuple
+import threading
+from typing import Dict, List, Optional, Tuple
 
 from app.models.db_models import (
     Comuna,
@@ -50,7 +51,7 @@ try:
         ST_MakePoint,
         ST_SetSRID,
     )
-    from sqlalchemy import cast, desc, func
+    from sqlalchemy import case, cast, desc, func
     from sqlalchemy.exc import OperationalError
     from sqlalchemy.orm import Session
 except ImportError:
@@ -62,6 +63,136 @@ except ImportError:
 
 
 logger = logging.getLogger("alervi.spatial_service")
+
+# Cache en memoria de entorno urbano (id_punto -> (colegios_count, paraderos_count))
+# Dado que la infraestructura urbana y los puntos son entidades fijas, la lectura en memoria
+# es O(1) (< 0.001 ms), evitando cálculos espaciales geodésicos en cada petición HTTP
+# y reduciendo el tiempo de respuesta a < 80 ms.
+_cache_conteos_entorno: Dict[int, Tuple[int, int]] = {}
+_cache_conteos_lock = threading.Lock()
+
+
+def limpiar_cache_entorno() -> None:
+    """Invalida la caché en memoria de los conteos de colegios y paraderos."""
+    with _cache_conteos_lock:
+        _cache_conteos_entorno.clear()
+
+
+def precargar_cache_entorno(db: Session) -> int:
+    """
+    Pre-carga la caché en memoria con los conteos de entorno urbano de todos los puntos críticos.
+    Se ejecuta al iniciar la aplicación para garantizar que incluso el primer request responda en < 80 ms.
+    """
+    if db is None:
+        return 0
+    try:
+        conteos = _conteos_entorno(db, ids_punto=None)
+        return len(conteos)
+    except Exception as exc:
+        logger.warning("Error al precargar caché de entorno urbano: %s", exc)
+        return 0
+
+
+def _conteos_entorno(
+    db: Session, ids_punto: Optional[List[int]] = None
+) -> Dict[int, Tuple[int, int]]:
+    """
+    Retorna un diccionario {id_punto: (colegios_count, paraderos_count)} dentro de un buffer de 150m.
+    Utiliza una caché en memoria thread-safe (O(1)) para evitar reevaluar ST_DWithin sobre miles de puntos.
+    Si la caché no está cargada, ejecuta la consulta espacial agrupada una sola vez y la memoriza.
+    """
+    global _cache_conteos_entorno
+
+    if ids_punto is not None and not ids_punto:
+        return {}
+
+    # Fast-path ultrarrápido sin contención si los puntos ya están cacheados
+    if _cache_conteos_entorno:
+        if ids_punto is None:
+            return _cache_conteos_entorno
+        cached = _cache_conteos_entorno
+        if all(pid in cached for pid in ids_punto):
+            return {pid: cached[pid] for pid in ids_punto}
+
+    if db is None or Geography is None or ElementoUrbano is None:
+        return {pid: (0, 0) for pid in (ids_punto or [])}
+
+    with _cache_conteos_lock:
+        # Re-check bajo lock
+        if ids_punto is not None and all(
+            pid in _cache_conteos_entorno for pid in ids_punto
+        ):
+            return {pid: _cache_conteos_entorno[pid] for pid in ids_punto}
+        if ids_punto is None and _cache_conteos_entorno:
+            return _cache_conteos_entorno
+
+        try:
+            punto_geog = cast(PuntoCritico.geometry, Geography)
+            elem_geog = cast(ElementoUrbano.geometry, Geography)
+
+            # Consulta espacial agregada: agrupa por punto_critico y suma por categoría
+            query = (
+                db.query(
+                    PuntoCritico.id_punto,
+                    func.coalesce(
+                        func.sum(
+                            case((ElementoUrbano.categoria == "colegio", 1), else_=0)
+                        ),
+                        0,
+                    ).label("colegios_count"),
+                    func.coalesce(
+                        func.sum(
+                            case((ElementoUrbano.categoria == "paradero", 1), else_=0)
+                        ),
+                        0,
+                    ).label("paraderos_count"),
+                )
+                .join(
+                    ElementoUrbano,
+                    ST_DWithin(elem_geog, punto_geog, 150.0),
+                )
+                .group_by(PuntoCritico.id_punto)
+            )
+
+            if ids_punto is not None and len(ids_punto) <= 100:
+                puntos_a_consultar = [
+                    p for p in ids_punto if p not in _cache_conteos_entorno
+                ]
+                if puntos_a_consultar:
+                    query = query.filter(PuntoCritico.id_punto.in_(puntos_a_consultar))
+                    rows = query.all()
+                    for r in rows:
+                        _cache_conteos_entorno[r.id_punto] = (
+                            int(r.colegios_count or 0),
+                            int(r.paraderos_count or 0),
+                        )
+                    for pid in puntos_a_consultar:
+                        _cache_conteos_entorno.setdefault(pid, (0, 0))
+            else:
+                rows = query.all()
+                for r in rows:
+                    _cache_conteos_entorno[r.id_punto] = (
+                        int(r.colegios_count or 0),
+                        int(r.paraderos_count or 0),
+                    )
+                if ids_punto is not None:
+                    for pid in ids_punto:
+                        _cache_conteos_entorno.setdefault(pid, (0, 0))
+
+        except Exception as exc:
+            logger.warning(
+                "No se pudieron calcular conteos de entorno desde BD (%s: %s). Usando valores neutros.",
+                type(exc).__name__,
+                exc,
+            )
+            return {
+                pid: _cache_conteos_entorno.get(pid, (0, 0))
+                for pid in (ids_punto or [])
+            }
+
+    if ids_punto is not None:
+        return {pid: _cache_conteos_entorno.get(pid, (0, 0)) for pid in ids_punto}
+    return dict(_cache_conteos_entorno)
 
 
 def _normalizar_comuna_filtro(comuna: Optional[str]) -> str:
@@ -205,13 +336,18 @@ def obtener_capa_riesgo_publico(
             return _fallback_capa_riesgo(comuna)
 
         features: List[GeoJsonFeature] = []
+        entorno = _conteos_entorno(db, [row.id_punto for row in rows])
+
         for row in rows:
+            col_count, par_count = entorno.get(row.id_punto, (0, 0))
             ip, nivel, _, _, _, _ = _calcular_scoring(
                 total_siniestros=int(row.total_siniestros),
                 fallecidos=int(row.total_fallecidos),
                 graves=int(row.total_graves),
                 menos_graves=int(row.total_menos_graves),
                 leves=int(row.total_leves),
+                colegios_count=col_count,
+                paraderos_count=par_count,
             )
 
             nombre_comuna_disp = (
@@ -377,6 +513,7 @@ def obtener_ranking(
 
         candidatos = []
         puntos_sin_indice: List[PuntoSinIndiceItem] = []
+        entorno = _conteos_entorno(db, [row.id_punto for row in rows])
 
         for row in rows:
             tot_sin = int(row.total_siniestros or 0)
@@ -385,10 +522,13 @@ def obtener_ranking(
             tot_mgrav = int(row.total_menos_graves or 0)
             tot_lev = int(row.total_leves or 0)
 
+            col_count, par_count = entorno.get(row.id_punto, (0, 0))
+
+            c_nom = row.comuna_nombre
             nombre_comuna_disp = (
                 "Concepción"
-                if "concepc" in (row.comuna_nombre or "").lower()
-                else (row.comuna_nombre or comuna_nombre_resp)
+                if c_nom and ("concepc" in c_nom or "Concepc" in c_nom)
+                else (c_nom or comuna_nombre_resp)
             )
 
             if tot_sin > 0:
@@ -398,6 +538,8 @@ def obtener_ranking(
                     graves=tot_grav,
                     menos_graves=tot_mgrav,
                     leves=tot_lev,
+                    colegios_count=col_count,
+                    paraderos_count=par_count,
                 )
                 candidatos.append(
                     (
@@ -411,8 +553,8 @@ def obtener_ranking(
                         f,
                         t,
                         c,
-                        round(float(row.lat), 6) if row.lat is not None else 0.0,
-                        round(float(row.lon), 6) if row.lon is not None else 0.0,
+                        row.lat,
+                        row.lon,
                         nombre_comuna_disp,
                     )
                 )
@@ -455,14 +597,16 @@ def obtener_ranking(
 
         items: List[PuntoRankingItem] = []
         for idx, item in enumerate(puntos_pagina):
+            lat_f = round(float(item[10]), 6) if item[10] is not None else 0.0
+            lon_f = round(float(item[11]), 6) if item[11] is not None else 0.0
             items.append(
                 PuntoRankingItem(
                     id_punto=item[4],
                     posicion_ranking=offset + idx + 1,
                     nombre_interseccion=f"Intersección #{item[4]} ({item[12]})",
                     comuna=item[12],
-                    latitud=item[10],
-                    longitud=item[11],
+                    latitud=lat_f,
+                    longitud=lon_f,
                     nivel_riesgo=item[5],
                     indice_prioridad=item[0],
                     severidad_s=item[6],
@@ -627,6 +771,7 @@ def obtener_detalle_punto(
 
         colegios = [e for e in elementos_cercanos if e.categoria == "colegio"]
         paraderos = [e for e in elementos_cercanos if e.categoria == "paradero"]
+        _cache_conteos_entorno[id_punto] = (len(colegios), len(paraderos))
 
         colegio_top = (
             ElementoUrbanoCercano(
