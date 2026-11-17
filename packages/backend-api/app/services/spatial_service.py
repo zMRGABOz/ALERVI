@@ -256,33 +256,6 @@ def _calcular_scoring(
     return ip, nivel, severidad_s, frecuencia_f, tendencia_t, contexto_c
 
 
-def _conteos_entorno(db: Session, ids: List[int]) -> dict:
-    """Un solo agregado espacial para compartir el contexto entre capa, ranking y detalle."""
-    rows = (
-        db.query(
-            PuntoCritico.id_punto,
-            func.count(ElementoUrbano.id_elemento)
-            .filter(ElementoUrbano.categoria == "colegio")
-            .label("colegios"),
-            func.count(ElementoUrbano.id_elemento)
-            .filter(ElementoUrbano.categoria == "paradero")
-            .label("paraderos"),
-        )
-        .join(
-            ElementoUrbano,
-            ST_DWithin(
-                cast(ElementoUrbano.geometry, Geography),
-                cast(PuntoCritico.geometry, Geography),
-                150.0,
-            ),
-        )
-        .filter(PuntoCritico.id_punto.in_(ids))
-        .group_by(PuntoCritico.id_punto)
-        .all()
-    )
-    return {r.id_punto: (int(r.colegios), int(r.paraderos)) for r in rows}
-
-
 @persistent
 def obtener_capa_riesgo_publico(
     db: Session,
