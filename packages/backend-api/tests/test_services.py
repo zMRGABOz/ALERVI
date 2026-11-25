@@ -320,6 +320,45 @@ def test_obtener_detalle_punto_persistido(db_session):
     assert error.value.status_code == 503
 
 
+def test_conteos_entorno_cache_en_memoria_evita_reconsulta_espacial(db_session):
+    """Verifica que obtener_ranking calcule contexto real (150m) y reutilice caché en memoria."""
+    from sqlalchemy import event
+
+    spatial_service.limpiar_cache_entorno()
+    queries_elemento_urbano = []
+
+    def _capture_sql(conn, cursor, statement, parameters, context, executemany):
+        if "elemento_urbano" in statement:
+            queries_elemento_urbano.append(statement)
+
+    conn = db_session.connection()
+    event.listen(conn, "before_cursor_execute", _capture_sql)
+    try:
+        # 1ra llamada: carga el caché con el contexto real (1 colegio + 1 paradero -> C = 60.0)
+        res1 = spatial_service.obtener_ranking(db_session, comuna="Concepción")
+        punto_101_1 = next(p for p in res1.puntos if p.id_punto == 101)
+        assert punto_101_1.contexto_c == 60.0
+        assert len(queries_elemento_urbano) == 1
+
+        # 2da llamada (y capa pública): reutiliza caché en memoria (0 nuevas queries a elemento_urbano)
+        res2 = spatial_service.obtener_ranking(db_session, comuna="Concepción")
+        punto_101_2 = next(p for p in res2.puntos if p.id_punto == 101)
+        assert punto_101_2.contexto_c == 60.0
+        capa = spatial_service.obtener_capa_riesgo_publico(
+            db_session, comuna="Concepción"
+        )
+        feat_101 = next(f for f in capa.features if f.id == 101)
+        assert feat_101.properties.indice_prioridad == punto_101_2.indice_prioridad
+        assert len(queries_elemento_urbano) == 1
+
+        # Al limpiar el caché, vuelve a consultar exactamente una vez
+        spatial_service.limpiar_cache_entorno()
+        spatial_service.obtener_ranking(db_session, comuna="Concepción")
+        assert len(queries_elemento_urbano) == 2
+    finally:
+        event.remove(conn, "before_cursor_execute", _capture_sql)
+
+
 def test_evaluar_alerta_proximidad_cinematica():
     """Verifica evaluacion cinematica con rumbo, velocidad y TTC."""
     mock_db = MagicMock()

@@ -29,16 +29,19 @@ def _authenticate_before_load(environment, **kwargs):
     host = (environment.host or "http://127.0.0.1:8000").rstrip("/")
     correo = os.getenv("LOCUST_INSPECTOR_EMAIL", "inspector@alervi.test")
     password = os.getenv("LOCUST_INSPECTOR_PASSWORD", "Dev-2026-ALERVI")
-    try:
-        res = requests.post(
-            f"{host}/api/v1/auth/login",
-            json={"correo": correo, "password": password},
-            timeout=15.0,
-        )
-        if res.status_code == 200:
-            _SHARED_TOKEN = res.json().get("access_token")
-    except Exception:
-        _SHARED_TOKEN = None
+    for _ in range(10):
+        try:
+            res = requests.post(
+                f"{host}/api/v1/auth/login",
+                json={"correo": correo, "password": password},
+                timeout=15.0,
+            )
+            if res.status_code == 200:
+                _SHARED_TOKEN = res.json().get("access_token")
+                break
+        except Exception:
+            _SHARED_TOKEN = None
+        time.sleep(0.5)
 
 
 # Coordenadas realistas de prueba en el Gran Concepción / San Pedro de la Paz

@@ -9,8 +9,9 @@ import hashlib
 import hmac
 import json
 import logging
+import threading
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -20,7 +21,26 @@ from app.core.database import get_db
 from app.core.persistence import persistent
 from app.models.db_models import Usuario
 
+try:
+    from sqlalchemy.orm import Session as _SASession
+except ImportError:
+    _SASession = object  # type: ignore
+
 logger = logging.getLogger("alervi.security")
+
+_ACTIVE_USER_CACHE: Dict[int, Tuple[float, str, str, bool]] = {}
+_ACTIVE_USER_CACHE_LOCK = threading.Lock()
+_ACTIVE_USER_TTL_SECONDS = 30.0
+
+
+def invalidate_user_cache(id_usuario: Optional[int] = None) -> None:
+    """Invalida el caché en memoria de cuentas activas (un usuario o todas)."""
+    with _ACTIVE_USER_CACHE_LOCK:
+        if id_usuario is None:
+            _ACTIVE_USER_CACHE.clear()
+        else:
+            _ACTIVE_USER_CACHE.pop(id_usuario, None)
+
 
 # Esquema de seguridad Bearer para OpenAPI y FastAPI
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -230,7 +250,7 @@ def decode_access_token(token: str) -> Dict[str, Any]:
     return payload
 
 
-async def get_current_user(
+def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
     db=Depends(get_db),
 ) -> Dict[str, Any]:
@@ -257,7 +277,32 @@ async def get_current_user(
 
 @persistent
 def _active_user(db, claims: Dict[str, Any]) -> Dict[str, Any]:
-    user = db.query(Usuario).filter(Usuario.id_usuario == claims["id_usuario"]).first()
+    uid = claims["id_usuario"]
+    use_cache = _SASession is not object and isinstance(db, _SASession)
+    now = time.monotonic()
+
+    if use_cache:
+        with _ACTIVE_USER_CACHE_LOCK:
+            cached = _ACTIVE_USER_CACHE.get(uid)
+        if cached is not None and now < cached[0]:
+            _, correo_db, rol_db, activo_db = cached
+            if not activo_db or correo_db != claims.get("correo"):
+                raise HTTPException(
+                    401,
+                    "La cuenta de la sesión ya no está disponible.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            return {**claims, "rol": rol_db}
+
+    user = db.query(Usuario).filter(Usuario.id_usuario == uid).first()
+    if use_cache and user is not None:
+        with _ACTIVE_USER_CACHE_LOCK:
+            _ACTIVE_USER_CACHE[uid] = (
+                now + _ACTIVE_USER_TTL_SECONDS,
+                user.correo,
+                user.rol,
+                bool(user.activo),
+            )
     if not user or not user.activo or user.correo != claims.get("correo"):
         raise HTTPException(
             401,
@@ -267,7 +312,7 @@ def _active_user(db, claims: Dict[str, Any]) -> Dict[str, Any]:
     return {**claims, "rol": user.rol}
 
 
-async def require_admin(
+def require_admin(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Dependencia de FastAPI para endpoints exclusivos de administradores."""
@@ -279,7 +324,7 @@ async def require_admin(
     return current_user
 
 
-async def require_inspector(
+def require_inspector(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     if current_user.get("rol") != "inspector":

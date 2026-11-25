@@ -14,6 +14,7 @@ from app.core.persistence import persistent
 from app.core.security import (
     create_access_token,
     get_password_hash,
+    invalidate_user_cache,
     verify_mfa_code,
     verify_password,
 )
@@ -270,6 +271,7 @@ def crear_usuario(db: Session, payload: UsuarioCreateRequest) -> UsuarioResponse
     db.add(user)
     db.commit()
     db.refresh(user)
+    invalidate_user_cache(user.id_usuario)
     return _usuario_response(user)
 
 
@@ -291,6 +293,7 @@ def actualizar_usuario(
     if payload.activo is not None:
         user.activo = payload.activo
     db.commit()
+    invalidate_user_cache(id_usuario)
     db.refresh(user)
     return _usuario_response(user)
 
