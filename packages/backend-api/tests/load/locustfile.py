@@ -11,11 +11,35 @@ Criterio de Aceptación SRS:
 - Tasa de errores: 0%
 """
 
+import os
 import random
 import time
 import uuid
 
-from locust import HttpUser, between, task
+import requests
+from locust import HttpUser, between, events, task
+
+_SHARED_TOKEN = None
+
+
+@events.test_start.add_listener
+def _authenticate_before_load(environment, **kwargs):
+    """Obtiene el token Bearer una sola vez antes de lanzar los usuarios concurrentes."""
+    global _SHARED_TOKEN
+    host = (environment.host or "http://127.0.0.1:8000").rstrip("/")
+    correo = os.getenv("LOCUST_INSPECTOR_EMAIL", "inspector@alervi.test")
+    password = os.getenv("LOCUST_INSPECTOR_PASSWORD", "Dev-2026-ALERVI")
+    try:
+        res = requests.post(
+            f"{host}/api/v1/auth/login",
+            json={"correo": correo, "password": password},
+            timeout=15.0,
+        )
+        if res.status_code == 200:
+            _SHARED_TOKEN = res.json().get("access_token")
+    except Exception:
+        _SHARED_TOKEN = None
+
 
 # Coordenadas realistas de prueba en el Gran Concepción / San Pedro de la Paz
 POSICIONES_CONCEPCION = [
@@ -44,6 +68,9 @@ class AlerviUser(HttpUser):
 
     def on_start(self):
         self.session_id = str(uuid.uuid4())
+        self.auth_headers = (
+            {"Authorization": f"Bearer {_SHARED_TOKEN}"} if _SHARED_TOKEN else {}
+        )
 
     @task(3)
     def test_ranking_on_the_fly(self):
@@ -61,6 +88,7 @@ class AlerviUser(HttpUser):
         with self.client.get(
             path,
             params=params,
+            headers=self.auth_headers,
             name="/ranking [calculo on-the-fly >2000 puntos]",
             catch_response=True,
             timeout=5.0,
