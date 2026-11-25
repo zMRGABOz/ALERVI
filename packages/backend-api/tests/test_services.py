@@ -359,6 +359,42 @@ def test_conteos_entorno_cache_en_memoria_evita_reconsulta_espacial(db_session):
         event.remove(conn, "before_cursor_execute", _capture_sql)
 
 
+def test_evaluar_alerta_proximidad_cache_en_memoria(db_session):
+    """Verifica que /alerts evalúe proximidad usando caché en memoria sin reconsultar BD."""
+    from sqlalchemy import event
+
+    spatial_service.limpiar_cache_entorno()
+    queries_punto = []
+
+    def _capture_sql(conn, cursor, statement, parameters, context, executemany):
+        if "punto_critico" in statement:
+            queries_punto.append(statement)
+
+    req = AlertCheckRequest(
+        session_id="test-cache-alerts",
+        latitude=-36.8281,
+        longitude=-73.0543,
+        speed_mps=13.88,
+        heading_degrees=0.0,
+        timestamp="2026-11-03T02:30:00Z",
+    )
+
+    conn = db_session.connection()
+    event.listen(conn, "before_cursor_execute", _capture_sql)
+    try:
+        res1 = spatial_service.evaluar_alerta_proximidad(db_session, req)
+        assert res1.alerta_activa is True
+        assert res1.alerta.id_punto == 101
+        assert len(queries_punto) == 1
+
+        res2 = spatial_service.evaluar_alerta_proximidad(db_session, req)
+        assert res2.alerta_activa is True
+        assert res2.alerta.id_punto == 101
+        assert len(queries_punto) == 1
+    finally:
+        event.remove(conn, "before_cursor_execute", _capture_sql)
+
+
 def test_evaluar_alerta_proximidad_cinematica():
     """Verifica evaluacion cinematica con rumbo, velocidad y TTC."""
     mock_db = MagicMock()

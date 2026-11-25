@@ -12,6 +12,7 @@ import logging
 import math
 import threading
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from typing import Dict, List, Optional, Tuple
 
 from fastapi import HTTPException
@@ -127,6 +128,7 @@ def _calcular_scoring(
 
 
 _ENTORNO_CACHE: Optional[Dict[int, Tuple[int, int]]] = None
+_ALERTS_PUNTOS_CACHE: Optional[Tuple[Tuple[int, float, float, int, int], ...]] = None
 _RANKING_BASE_CACHE: Dict[
     Tuple[str, int, int],
     Tuple[Tuple[int, float, float, str, int, int, int, int, int], ...],
@@ -145,10 +147,11 @@ _BUFFER_ENTORNO_GRADOS_BBOX = 0.003
 
 def limpiar_cache_entorno() -> None:
     """Invalida los cachés en memoria de datos geoespaciales estáticos."""
-    global _ENTORNO_CACHE
+    global _ENTORNO_CACHE, _ALERTS_PUNTOS_CACHE
     with _ENTORNO_CACHE_LOCK:
         _ENTORNO_CACHE = None
     with _SALIDA_QUERY_LOCK:
+        _ALERTS_PUNTOS_CACHE = None
         _RANKING_BASE_CACHE.clear()
         _CAPA_BASE_CACHE.clear()
 
@@ -745,6 +748,56 @@ def obtener_detalle_punto(
         raise
 
 
+def _distancia_haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Distancia geodésica aproximada en metros sobre esfera WGS84 media."""
+    r_m = 6371008.8
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = phi2 - phi1
+    dlambda = math.radians(lon2 - lon1)
+    a = (
+        math.sin(dphi * 0.5) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda * 0.5) ** 2
+    )
+    return 2.0 * r_m * math.asin(min(1.0, math.sqrt(a)))
+
+
+def _obtener_puntos_alertas_cacheados(
+    db: Session,
+) -> Tuple[Tuple[int, float, float, int, int], ...]:
+    global _ALERTS_PUNTOS_CACHE
+    if _ALERTS_PUNTOS_CACHE is not None:
+        return _ALERTS_PUNTOS_CACHE
+
+    with _SALIDA_QUERY_LOCK:
+        if _ALERTS_PUNTOS_CACHE is None:
+            rows = (
+                db.query(
+                    PuntoCritico.id_punto,
+                    ST_Y(PuntoCritico.geometry).label("lat"),
+                    ST_X(PuntoCritico.geometry).label("lon"),
+                    func.coalesce(func.sum(Registro.fallecidos), 0).label("fallecidos"),
+                    func.coalesce(func.sum(Registro.cantidad_siniestros), 0).label(
+                        "total_siniestros"
+                    ),
+                )
+                .outerjoin(Registro, Registro.id_punto == PuntoCritico.id_punto)
+                .group_by(PuntoCritico.id_punto, PuntoCritico.geometry)
+                .all()
+            )
+            _ALERTS_PUNTOS_CACHE = tuple(
+                (
+                    int(r.id_punto),
+                    float(r.lat),
+                    float(r.lon),
+                    int(r.fallecidos or 0),
+                    int(r.total_siniestros or 0),
+                )
+                for r in rows
+            )
+        return _ALERTS_PUNTOS_CACHE
+
+
 @persistent
 def evaluar_alerta_proximidad(
     db: Session, payload: AlertCheckRequest
@@ -768,39 +821,59 @@ def evaluar_alerta_proximidad(
                 alerta=None,
             )
 
-        user_pt = ST_SetSRID(ST_MakePoint(lon, lat), 4326)
-        user_geog = cast(user_pt, Geography)
-        punto_geog = cast(PuntoCritico.geometry, Geography)
+        if Session is not object and isinstance(db, Session):
+            puntos = _obtener_puntos_alertas_cacheados(db)
+            candidatos = []
+            for p_id, p_lat, p_lon, fall, tot_sin in puntos:
+                if abs(p_lat - lat) > 0.0022 or abs(p_lon - lon) > 0.003:
+                    continue
+                dist_m = _distancia_haversine_m(lat, lon, p_lat, p_lon)
+                if dist_m <= 200.0:
+                    candidatos.append(
+                        SimpleNamespace(
+                            id_punto=p_id,
+                            lat=p_lat,
+                            lon=p_lon,
+                            distancia_m=dist_m,
+                            fallecidos=fall,
+                            total_siniestros=tot_sin,
+                        )
+                    )
+            candidatos.sort(key=lambda item: item.distancia_m)
+        else:
+            user_pt = ST_SetSRID(ST_MakePoint(lon, lat), 4326)
+            user_geog = cast(user_pt, Geography)
+            punto_geog = cast(PuntoCritico.geometry, Geography)
 
-        query_candidatos = (
-            db.query(
-                PuntoCritico.id_punto,
-                ST_Distance(punto_geog, user_geog).label("distancia_m"),
-                ST_X(PuntoCritico.geometry).label("lon"),
-                ST_Y(PuntoCritico.geometry).label("lat"),
-                func.coalesce(func.sum(Registro.fallecidos), 0).label("fallecidos"),
-                func.coalesce(func.sum(Registro.cantidad_siniestros), 0).label(
-                    "total_siniestros"
-                ),
+            query_candidatos = (
+                db.query(
+                    PuntoCritico.id_punto,
+                    ST_Distance(punto_geog, user_geog).label("distancia_m"),
+                    ST_X(PuntoCritico.geometry).label("lon"),
+                    ST_Y(PuntoCritico.geometry).label("lat"),
+                    func.coalesce(func.sum(Registro.fallecidos), 0).label("fallecidos"),
+                    func.coalesce(func.sum(Registro.cantidad_siniestros), 0).label(
+                        "total_siniestros"
+                    ),
+                )
+                .outerjoin(Registro, Registro.id_punto == PuntoCritico.id_punto)
+                .filter(
+                    ST_DWithin(PuntoCritico.geometry, user_pt, 0.004)
+                    & ST_DWithin(punto_geog, user_geog, 200.0)
+                )
+                .group_by(PuntoCritico.id_punto, PuntoCritico.geometry)
+                .order_by("distancia_m")
             )
-            .outerjoin(Registro, Registro.id_punto == PuntoCritico.id_punto)
-            .filter(
-                ST_DWithin(PuntoCritico.geometry, user_pt, 0.004)
-                & ST_DWithin(punto_geog, user_geog, 200.0)
-            )
-            .group_by(PuntoCritico.id_punto, PuntoCritico.geometry)
-            .order_by("distancia_m")
-        )
 
-        candidatos = []
-        if hasattr(query_candidatos, "all"):
-            res = query_candidatos.all()
-            if res:
-                candidatos = res if isinstance(res, list) else [res]
-        if not candidatos and hasattr(query_candidatos, "first"):
-            first_row = query_candidatos.first()
-            if first_row:
-                candidatos = [first_row]
+            candidatos = []
+            if hasattr(query_candidatos, "all"):
+                res = query_candidatos.all()
+                if res:
+                    candidatos = res if isinstance(res, list) else [res]
+            if not candidatos and hasattr(query_candidatos, "first"):
+                first_row = query_candidatos.first()
+                if first_row:
+                    candidatos = [first_row]
 
         if not candidatos:
             return AlertCheckResponse(
