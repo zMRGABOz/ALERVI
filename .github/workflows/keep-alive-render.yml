@@ -1,0 +1,21 @@
+name: Keep Alive Render
+
+on:
+  schedule:
+    # Ejecuta cada 10 minutos (Render suspende tras 15 min de inactividad)
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping-render:
+    name: Ping /health en Render
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Llamar al endpoint /health
+        env:
+          HEALTH_URL: ${{ vars.RENDER_HEALTH_URL || 'https://alervi.onrender.com/health' }}
+        run: |
+          curl --fail --silent --show-error --max-time 60 "$HEALTH_URL"
+          echo ""
