@@ -13,9 +13,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import get_password_hash
+from app.core.security import get_password_hash, invalidate_user_cache
 from app.main import app
-from app.services import crud_service
+from app.services import crud_service, spatial_service
 
 
 @pytest.fixture(scope="session")
@@ -94,8 +94,12 @@ def isolated_backend(db_session, monkeypatch, tmp_path):
         crud_service._PONDERACIONES_VIGENTES.copy(),
     )
     crud_service.reset_login_attempts()
+    spatial_service.limpiar_cache_entorno()
+    invalidate_user_cache()
     yield
     crud_service.reset_login_attempts()
+    spatial_service.limpiar_cache_entorno()
+    invalidate_user_cache()
 
 
 @pytest.fixture

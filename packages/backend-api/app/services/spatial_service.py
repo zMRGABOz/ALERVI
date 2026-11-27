@@ -10,8 +10,10 @@ Provee funciones para:
 
 import logging
 import math
+import threading
 from datetime import datetime, timezone
-from typing import List, Optional, Tuple
+from types import SimpleNamespace
+from typing import Dict, List, Optional, Tuple
 
 from fastapi import HTTPException
 
@@ -125,31 +127,88 @@ def _calcular_scoring(
     return ip, nivel, severidad_s, frecuencia_f, tendencia_t, contexto_c
 
 
-def _conteos_entorno(db: Session, ids: List[int]) -> dict:
-    """Un solo agregado espacial para compartir el contexto entre capa, ranking y detalle."""
-    rows = (
-        db.query(
-            PuntoCritico.id_punto,
-            func.count(ElementoUrbano.id_elemento)
-            .filter(ElementoUrbano.categoria == "colegio")
-            .label("colegios"),
-            func.count(ElementoUrbano.id_elemento)
-            .filter(ElementoUrbano.categoria == "paradero")
-            .label("paraderos"),
+_ENTORNO_CACHE: Optional[Dict[int, Tuple[int, int]]] = None
+_ALERTS_PUNTOS_CACHE: Optional[Tuple[Tuple[int, float, float, int, int], ...]] = None
+_RANKING_BASE_CACHE: Dict[
+    Tuple[str, int, int],
+    Tuple[Tuple[int, float, float, str, int, int, int, int, int], ...],
+] = {}
+_CAPA_BASE_CACHE: Dict[
+    Tuple[str, Optional[int]],
+    Tuple[Tuple[int, float, float, str, int, int, int, int, int], ...],
+] = {}
+_ENTORNO_CACHE_LOCK = threading.Lock()
+_SALIDA_QUERY_LOCK = threading.Lock()
+_BUFFER_ENTORNO_METROS = 150.0
+# Prefiltro en grados WGS84 (~265 m E-O x ~333 m N-S en Concepción) que habilita
+# el índice GiST sobre `geometry(Point, 4326)` antes del cálculo exacto Geography.
+_BUFFER_ENTORNO_GRADOS_BBOX = 0.003
+
+
+def limpiar_cache_entorno() -> None:
+    """Invalida los cachés en memoria de datos geoespaciales estáticos."""
+    global _ENTORNO_CACHE, _ALERTS_PUNTOS_CACHE
+    with _ENTORNO_CACHE_LOCK:
+        _ENTORNO_CACHE = None
+    with _SALIDA_QUERY_LOCK:
+        _ALERTS_PUNTOS_CACHE = None
+        _RANKING_BASE_CACHE.clear()
+        _CAPA_BASE_CACHE.clear()
+
+
+def _consultar_conteos_entorno(
+    db: Session, ids: Optional[List[int]] = None
+) -> Dict[int, Tuple[int, int]]:
+    query = db.query(
+        PuntoCritico.id_punto,
+        func.count(ElementoUrbano.id_elemento)
+        .filter(ElementoUrbano.categoria == "colegio")
+        .label("colegios"),
+        func.count(ElementoUrbano.id_elemento)
+        .filter(ElementoUrbano.categoria == "paradero")
+        .label("paraderos"),
+    ).join(
+        ElementoUrbano,
+        ST_DWithin(
+            ElementoUrbano.geometry,
+            PuntoCritico.geometry,
+            _BUFFER_ENTORNO_GRADOS_BBOX,
         )
-        .join(
-            ElementoUrbano,
-            ST_DWithin(
-                cast(ElementoUrbano.geometry, Geography),
-                cast(PuntoCritico.geometry, Geography),
-                150.0,
-            ),
-        )
-        .filter(PuntoCritico.id_punto.in_(ids))
-        .group_by(PuntoCritico.id_punto)
-        .all()
+        & ST_DWithin(
+            cast(ElementoUrbano.geometry, Geography),
+            cast(PuntoCritico.geometry, Geography),
+            _BUFFER_ENTORNO_METROS,
+        ),
     )
+    if ids is not None:
+        query = query.filter(PuntoCritico.id_punto.in_(ids))
+    rows = query.group_by(PuntoCritico.id_punto).all()
     return {r.id_punto: (int(r.colegios), int(r.paraderos)) for r in rows}
+
+
+def _conteos_entorno(
+    db: Session, ids: Optional[List[int]] = None
+) -> Dict[int, Tuple[int, int]]:
+    """Un solo agregado espacial cacheado en memoria para compartir entre capa y ranking.
+
+    Como `punto_critico` y `elemento_urbano` son catálogos estáticos de solo lectura
+    para la API, el mapa completo `{id_punto: (colegios, paraderos)}` se calcula una
+    sola vez y se reutiliza en memoria sin repetir el JOIN espacial por petición.
+    """
+    global _ENTORNO_CACHE
+
+    if Session is object or not isinstance(db, Session):
+        if ids is not None and not ids:
+            return {}
+        return _consultar_conteos_entorno(db, ids)
+
+    if _ENTORNO_CACHE is not None:
+        return _ENTORNO_CACHE
+
+    with _ENTORNO_CACHE_LOCK:
+        if _ENTORNO_CACHE is None:
+            _ENTORNO_CACHE = _consultar_conteos_entorno(db)
+        return _ENTORNO_CACHE
 
 
 @persistent
@@ -204,57 +263,96 @@ def obtener_capa_riesgo_publico(
                 ) from exc
 
         # El contrato devuelve la capa comunal, no un Top N parcial del ranking.
-        query = query.order_by(desc("total_siniestros"), PuntoCritico.id_punto).limit(
-            limit
-        )
-        rows = query.all()
+        use_cache = Session is not object and isinstance(db, Session) and not bbox
+        capa_key = (filtro_comuna.lower(), limit)
 
-        if not rows:
+        if use_cache and capa_key in _CAPA_BASE_CACHE:
+            base_rows = _CAPA_BASE_CACHE[capa_key]
+        else:
+
+            def _fetch_capa_rows():
+                q = query.order_by(
+                    desc("total_siniestros"), PuntoCritico.id_punto
+                ).limit(limit)
+                raw = q.all()
+                parsed = []
+                for r in raw:
+                    c_disp = (
+                        "Concepción"
+                        if "concepc" in (r.comuna_nombre or "").lower()
+                        else r.comuna_nombre
+                    )
+                    parsed.append(
+                        (
+                            r.id_punto,
+                            round(float(r.lon), 6),
+                            round(float(r.lat), 6),
+                            c_disp,
+                            int(r.total_siniestros),
+                            int(r.total_fallecidos),
+                            int(r.total_graves),
+                            int(r.total_menos_graves),
+                            int(r.total_leves),
+                        )
+                    )
+                return tuple(parsed)
+
+            if use_cache:
+                with _SALIDA_QUERY_LOCK:
+                    if capa_key not in _CAPA_BASE_CACHE:
+                        _CAPA_BASE_CACHE[capa_key] = _fetch_capa_rows()
+                    base_rows = _CAPA_BASE_CACHE[capa_key]
+            else:
+                base_rows = _fetch_capa_rows()
+
+        if not base_rows:
             return GeoJsonFeatureCollection(type="FeatureCollection", features=[])
 
-        entorno = _conteos_entorno(db, [row.id_punto for row in rows])
+        entorno = _conteos_entorno(db, [r[0] for r in base_rows])
         features: List[GeoJsonFeature] = []
-        for row in rows:
-            colegios, paraderos = entorno.get(row.id_punto, (0, 0))
+        for (
+            id_punto,
+            lon_r,
+            lat_r,
+            nombre_comuna_disp,
+            tot_sin,
+            tot_fall,
+            tot_grav,
+            tot_mgrav,
+            tot_lev,
+        ) in base_rows:
+            colegios, paraderos = entorno.get(id_punto, (0, 0))
             ip, nivel, _, _, _, _ = _calcular_scoring(
-                total_siniestros=int(row.total_siniestros),
-                fallecidos=int(row.total_fallecidos),
-                graves=int(row.total_graves),
-                menos_graves=int(row.total_menos_graves),
-                leves=int(row.total_leves),
+                total_siniestros=tot_sin,
+                fallecidos=tot_fall,
+                graves=tot_grav,
+                menos_graves=tot_mgrav,
+                leves=tot_lev,
                 colegios_count=colegios,
                 paraderos_count=paraderos,
             )
 
-            nombre_comuna_disp = (
-                "Concepción"
-                if "concepc" in row.comuna_nombre.lower()
-                else row.comuna_nombre
-            )
-            nombre_punto = f"Punto Crítico #{row.id_punto} ({nombre_comuna_disp})"
+            nombre_punto = f"Punto Crítico #{id_punto} ({nombre_comuna_disp})"
 
             features.append(
                 GeoJsonFeature(
                     type="Feature",
-                    id=row.id_punto,
+                    id=id_punto,
                     geometry=GeoJsonPoint(
                         type="Point",
-                        coordinates=[
-                            round(float(row.lon), 6),
-                            round(float(row.lat), 6),
-                        ],
+                        coordinates=[lon_r, lat_r],
                     ),
                     properties=PuntoCriticoProperties(
-                        id_punto=row.id_punto,
+                        id_punto=id_punto,
                         nombre_interseccion=nombre_punto,
                         comuna=nombre_comuna_disp,
                         nivel_riesgo=nivel,
                         indice_prioridad=ip,
-                        total_siniestros=int(row.total_siniestros),
-                        total_fallecidos=int(row.total_fallecidos),
-                        total_graves=int(row.total_graves),
-                        tendencia="ALZA" if row.total_fallecidos > 0 else "ESTABLE",
-                        resumen_publico=f"Sector con {row.total_siniestros} siniestros registrados y prioridad relativa {nivel}.",
+                        total_siniestros=tot_sin,
+                        total_fallecidos=tot_fall,
+                        total_graves=tot_grav,
+                        tendencia="ALZA" if tot_fall > 0 else "ESTABLE",
+                        resumen_publico=f"Sector con {tot_sin} siniestros registrados y prioridad relativa {nivel}.",
                     ),
                 )
             )
@@ -317,8 +415,46 @@ def obtener_ranking(
             .group_by(PuntoCritico.id_punto, PuntoCritico.geometry, Comuna.nombre)
         )
 
-        rows = query.all()
-        if not rows:
+        use_cache = Session is not object and isinstance(db, Session)
+        rank_key = (filtro_comuna.lower(), p_ini, p_fin)
+
+        if use_cache and rank_key in _RANKING_BASE_CACHE:
+            base_rows = _RANKING_BASE_CACHE[rank_key]
+        else:
+
+            def _fetch_ranking_rows():
+                raw = query.all()
+                parsed = []
+                for r in raw:
+                    c_disp = (
+                        "Concepción"
+                        if "concepc" in (r.comuna_nombre or "").lower()
+                        else (r.comuna_nombre or comuna_nombre_resp)
+                    )
+                    parsed.append(
+                        (
+                            r.id_punto,
+                            round(float(r.lat), 6) if r.lat is not None else 0.0,
+                            round(float(r.lon), 6) if r.lon is not None else 0.0,
+                            c_disp,
+                            int(r.total_siniestros or 0),
+                            int(r.total_fallecidos or 0),
+                            int(r.total_graves or 0),
+                            int(r.total_menos_graves or 0),
+                            int(r.total_leves or 0),
+                        )
+                    )
+                return tuple(parsed)
+
+            if use_cache:
+                with _SALIDA_QUERY_LOCK:
+                    if rank_key not in _RANKING_BASE_CACHE:
+                        _RANKING_BASE_CACHE[rank_key] = _fetch_ranking_rows()
+                    base_rows = _RANKING_BASE_CACHE[rank_key]
+            else:
+                base_rows = _fetch_ranking_rows()
+
+        if not base_rows:
             logger.info(
                 "Consulta de ranking sin registros para comuna '%s' (%s). Retornando resultado vacío legítimo.",
                 comuna_nombre_resp,
@@ -334,25 +470,23 @@ def obtener_ranking(
                 puntos_sin_indice=[],
             )
 
-        entorno = _conteos_entorno(db, [row.id_punto for row in rows])
+        entorno = _conteos_entorno(db, [r[0] for r in base_rows])
         candidatos = []
-        puntos_sin_indice: List[PuntoSinIndiceItem] = []
+        sin_indice_raw = []
 
-        for row in rows:
-            tot_sin = int(row.total_siniestros or 0)
-            tot_fall = int(row.total_fallecidos or 0)
-            tot_grav = int(row.total_graves or 0)
-            tot_mgrav = int(row.total_menos_graves or 0)
-            tot_lev = int(row.total_leves or 0)
-
-            nombre_comuna_disp = (
-                "Concepción"
-                if "concepc" in (row.comuna_nombre or "").lower()
-                else (row.comuna_nombre or comuna_nombre_resp)
-            )
-
+        for (
+            id_punto,
+            lat_r,
+            lon_r,
+            nombre_comuna_disp,
+            tot_sin,
+            tot_fall,
+            tot_grav,
+            tot_mgrav,
+            tot_lev,
+        ) in base_rows:
             if tot_sin > 0:
-                colegios, paraderos = entorno.get(row.id_punto, (0, 0))
+                colegios, paraderos = entorno.get(id_punto, (0, 0))
                 ip, nivel, s, f, t, c = _calcular_scoring(
                     total_siniestros=tot_sin,
                     fallecidos=tot_fall,
@@ -368,32 +502,19 @@ def obtener_ranking(
                         tot_fall,
                         tot_grav,
                         tot_sin,
-                        row.id_punto,
+                        id_punto,
                         nivel,
                         s,
                         f,
                         t,
                         c,
-                        round(float(row.lat), 6) if row.lat is not None else 0.0,
-                        round(float(row.lon), 6) if row.lon is not None else 0.0,
+                        lat_r,
+                        lon_r,
                         nombre_comuna_disp,
                     )
                 )
             else:
-                puntos_sin_indice.append(
-                    PuntoSinIndiceItem(
-                        id_punto=row.id_punto,
-                        nombre_interseccion=f"Intersección #{row.id_punto} ({nombre_comuna_disp})",
-                        comuna=nombre_comuna_disp,
-                        latitud=round(float(row.lat), 6)
-                        if row.lat is not None
-                        else 0.0,
-                        longitud=round(float(row.lon), 6)
-                        if row.lon is not None
-                        else 0.0,
-                        motivo=f"Sin registros de siniestros en período {periodo_resp}",
-                    )
-                )
+                sin_indice_raw.append((id_punto, lat_r, lon_r, nombre_comuna_disp))
 
         # RB-7: Criterio estricto de ordenación del contrato OpenAPI:
         # 1. IP descendente
@@ -439,6 +560,22 @@ def obtener_ranking(
                 )
             )
 
+        puntos_sin_indice = (
+            [
+                PuntoSinIndiceItem(
+                    id_punto=p_id,
+                    nombre_interseccion=f"Intersección #{p_id} ({c_disp})",
+                    comuna=c_disp,
+                    latitud=p_lat,
+                    longitud=p_lon,
+                    motivo=f"Sin registros de siniestros en período {periodo_resp}",
+                )
+                for p_id, p_lat, p_lon, c_disp in sin_indice_raw[:limit]
+            ]
+            if not items
+            else []
+        )
+
         return RankingResponse(
             total_puntos=total_puntos,
             configuracion_version="v1.0-oficial-2026",
@@ -446,7 +583,7 @@ def obtener_ranking(
             comuna=comuna_nombre_resp,
             periodo=periodo_resp,
             puntos=items,
-            puntos_sin_indice=puntos_sin_indice[:limit] if not items else [],
+            puntos_sin_indice=puntos_sin_indice,
         )
     except Exception:
         raise
@@ -611,6 +748,56 @@ def obtener_detalle_punto(
         raise
 
 
+def _distancia_haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Distancia geodésica aproximada en metros sobre esfera WGS84 media."""
+    r_m = 6371008.8
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = phi2 - phi1
+    dlambda = math.radians(lon2 - lon1)
+    a = (
+        math.sin(dphi * 0.5) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda * 0.5) ** 2
+    )
+    return 2.0 * r_m * math.asin(min(1.0, math.sqrt(a)))
+
+
+def _obtener_puntos_alertas_cacheados(
+    db: Session,
+) -> Tuple[Tuple[int, float, float, int, int], ...]:
+    global _ALERTS_PUNTOS_CACHE
+    if _ALERTS_PUNTOS_CACHE is not None:
+        return _ALERTS_PUNTOS_CACHE
+
+    with _SALIDA_QUERY_LOCK:
+        if _ALERTS_PUNTOS_CACHE is None:
+            rows = (
+                db.query(
+                    PuntoCritico.id_punto,
+                    ST_Y(PuntoCritico.geometry).label("lat"),
+                    ST_X(PuntoCritico.geometry).label("lon"),
+                    func.coalesce(func.sum(Registro.fallecidos), 0).label("fallecidos"),
+                    func.coalesce(func.sum(Registro.cantidad_siniestros), 0).label(
+                        "total_siniestros"
+                    ),
+                )
+                .outerjoin(Registro, Registro.id_punto == PuntoCritico.id_punto)
+                .group_by(PuntoCritico.id_punto, PuntoCritico.geometry)
+                .all()
+            )
+            _ALERTS_PUNTOS_CACHE = tuple(
+                (
+                    int(r.id_punto),
+                    float(r.lat),
+                    float(r.lon),
+                    int(r.fallecidos or 0),
+                    int(r.total_siniestros or 0),
+                )
+                for r in rows
+            )
+        return _ALERTS_PUNTOS_CACHE
+
+
 @persistent
 def evaluar_alerta_proximidad(
     db: Session, payload: AlertCheckRequest
@@ -634,36 +821,59 @@ def evaluar_alerta_proximidad(
                 alerta=None,
             )
 
-        user_pt = ST_SetSRID(ST_MakePoint(lon, lat), 4326)
-        user_geog = cast(user_pt, Geography)
-        punto_geog = cast(PuntoCritico.geometry, Geography)
+        if Session is not object and isinstance(db, Session):
+            puntos = _obtener_puntos_alertas_cacheados(db)
+            candidatos = []
+            for p_id, p_lat, p_lon, fall, tot_sin in puntos:
+                if abs(p_lat - lat) > 0.0022 or abs(p_lon - lon) > 0.003:
+                    continue
+                dist_m = _distancia_haversine_m(lat, lon, p_lat, p_lon)
+                if dist_m <= 200.0:
+                    candidatos.append(
+                        SimpleNamespace(
+                            id_punto=p_id,
+                            lat=p_lat,
+                            lon=p_lon,
+                            distancia_m=dist_m,
+                            fallecidos=fall,
+                            total_siniestros=tot_sin,
+                        )
+                    )
+            candidatos.sort(key=lambda item: item.distancia_m)
+        else:
+            user_pt = ST_SetSRID(ST_MakePoint(lon, lat), 4326)
+            user_geog = cast(user_pt, Geography)
+            punto_geog = cast(PuntoCritico.geometry, Geography)
 
-        query_candidatos = (
-            db.query(
-                PuntoCritico.id_punto,
-                ST_Distance(punto_geog, user_geog).label("distancia_m"),
-                ST_X(PuntoCritico.geometry).label("lon"),
-                ST_Y(PuntoCritico.geometry).label("lat"),
-                func.coalesce(func.sum(Registro.fallecidos), 0).label("fallecidos"),
-                func.coalesce(func.sum(Registro.cantidad_siniestros), 0).label(
-                    "total_siniestros"
-                ),
+            query_candidatos = (
+                db.query(
+                    PuntoCritico.id_punto,
+                    ST_Distance(punto_geog, user_geog).label("distancia_m"),
+                    ST_X(PuntoCritico.geometry).label("lon"),
+                    ST_Y(PuntoCritico.geometry).label("lat"),
+                    func.coalesce(func.sum(Registro.fallecidos), 0).label("fallecidos"),
+                    func.coalesce(func.sum(Registro.cantidad_siniestros), 0).label(
+                        "total_siniestros"
+                    ),
+                )
+                .outerjoin(Registro, Registro.id_punto == PuntoCritico.id_punto)
+                .filter(
+                    ST_DWithin(PuntoCritico.geometry, user_pt, 0.004)
+                    & ST_DWithin(punto_geog, user_geog, 200.0)
+                )
+                .group_by(PuntoCritico.id_punto, PuntoCritico.geometry)
+                .order_by("distancia_m")
             )
-            .outerjoin(Registro, Registro.id_punto == PuntoCritico.id_punto)
-            .filter(ST_DWithin(punto_geog, user_geog, 200.0))
-            .group_by(PuntoCritico.id_punto, PuntoCritico.geometry)
-            .order_by("distancia_m")
-        )
 
-        candidatos = []
-        if hasattr(query_candidatos, "all"):
-            res = query_candidatos.all()
-            if res:
-                candidatos = res if isinstance(res, list) else [res]
-        if not candidatos and hasattr(query_candidatos, "first"):
-            first_row = query_candidatos.first()
-            if first_row:
-                candidatos = [first_row]
+            candidatos = []
+            if hasattr(query_candidatos, "all"):
+                res = query_candidatos.all()
+                if res:
+                    candidatos = res if isinstance(res, list) else [res]
+            if not candidatos and hasattr(query_candidatos, "first"):
+                first_row = query_candidatos.first()
+                if first_row:
+                    candidatos = [first_row]
 
         if not candidatos:
             return AlertCheckResponse(
